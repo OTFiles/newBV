@@ -67,6 +67,7 @@ fun UISetting(modifier: Modifier = Modifier) {
 
     var showVideoInfo by remember { mutableStateOf(Prefs.showVideoInfo) }
     var showPersistentSeek by remember { mutableStateOf(Prefs.showPersistentSeek) }
+    var commentKeepPlaying by remember { mutableStateOf(Prefs.commentKeepPlaying) }
     var selectedLeftNavItem by remember { mutableStateOf(Prefs.homeLeftNavItem) }
     var selectedFirstHomeTopNavItem by remember { mutableStateOf(Prefs.firstHomeTopNavItem) }
     var selectedFirstPersonalTopNavItem by remember { mutableStateOf(Prefs.firstPersonalTopNavItem) }
@@ -137,6 +138,17 @@ fun UISetting(modifier: Modifier = Modifier) {
                         onCheckedChange = {
                             showPersistentSeek = it
                             Prefs.showPersistentSeek = it
+                        },
+                    )
+                }
+                item {
+                    SettingSwitchListItem(
+                        title = "边看边刷评论",
+                        supportText = "打开评论时不暂停播放（低配电视可能掉帧）",
+                        checked = commentKeepPlaying,
+                        onCheckedChange = {
+                            commentKeepPlaying = it
+                            Prefs.commentKeepPlaying = it
                         },
                     )
                 }

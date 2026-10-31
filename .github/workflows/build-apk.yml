@@ -1,0 +1,125 @@
+name: Build APK
+
+# 手动触发：Actions → Build APK → Run workflow
+on:
+  workflow_dispatch:
+    inputs:
+      version_base:
+        description: "版本前缀（留空使用 0.0.0）"
+        required: false
+        default: "0.0.0"
+      build_type:
+        description: "构建类型（debug 可直接安装；release 需签名，未配置签名时产出未签名 APK）"
+        required: true
+        default: "debug"
+        type: choice
+        options:
+          - debug
+          - release
+  # 推送到 main 时也构建，便于随时拿到最新产物
+  push:
+    branches:
+      - main
+
+# 同一分支的重复触发取消旧构建，避免浪费额度
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ github.event.inputs.build_type || 'debug' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # AppConfiguration 用 `git rev-list --count HEAD` 推导 versionCode，
+          # 需要完整历史；浅克隆会让版本号不稳定
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # 保留 Gradle 缓存，二次构建可省下大半时间
+          cache-read-only: false
+
+      - name: Prepare local.properties
+        run: |
+          # CI 上没有测试凭证与崩溃上报 token，写一个最小配置即可。
+          # crashReport.token 留空 → 崩溃上传功能自动禁用，不影响构建。
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build APK
+        env:
+          NEWBV_VERSION_BASE: ${{ github.event.inputs.version_base || '0.0.0' }}
+          BUILD_TYPE: ${{ github.event.inputs.build_type || 'debug' }}
+        run: |
+          set -euo pipefail
+          # NEWBV_VERSION_BASE 会被 AppConfiguration 读取，去掉可能的 v 前缀
+          export NEWBV_VERSION_BASE="${NEWBV_VERSION_BASE#v}"
+
+          if [ "$BUILD_TYPE" = "release" ]; then
+            # 仓库没有签名配置时，release 产物是未签名的（无法直接安装），
+            # 但可以验证 R8/混淆流程能否通过，这个信号很有价值。
+            ./gradlew assembleRelease --stacktrace
+          else
+            ./gradlew assembleDebug --stacktrace
+          fi
+
+      - name: Locate APK
+        id: apk
+        run: |
+          set -euo pipefail
+          BUILD_TYPE="${{ github.event.inputs.build_type || 'debug' }}"
+          APK=$(find app/build/outputs/apk -name "*.apk" -type f | head -n 1)
+          if [ -z "$APK" ]; then
+            echo "::error::未找到 APK 产物"
+            find app/build/outputs -maxdepth 4 -type d || true
+            exit 1
+          fi
+          NAME=$(basename "$APK")
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "type=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
+          echo "### 产物" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 文件：\`$NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 大小：$(du -h "$APK" | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 类型：\`$BUILD_TYPE\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: newBV-apk-${{ steps.apk.outputs.type }}
+          path: ${{ steps.apk.outputs.path }}
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload build reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports
+          path: |
+            **/build/reports/**
+            **/build/outputs/logs/**
+          retention-days: 7
+          if-no-files-found: ignore

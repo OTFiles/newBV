@@ -47,6 +47,7 @@ import dev.frost819.newbv.danmaku.component.DanmakuPlayerCompose
 import dev.frost819.newbv.danmaku.util.DanmakuMaskFinder
 import dev.frost819.newbv.danmaku.util.calculateMaskDelay
 import dev.frost819.newbv.danmaku.util.danmakuMask
+import dev.frost819.newbv.data.datastore.Prefs
 import dev.frost819.newbv.player.BvVideoPlayer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
@@ -301,9 +302,16 @@ fun VideoPlayerScreen(
         },
         onShowComments = {
             logger.info { "[CARD] openComments aid=${uiState.aid}" }
-            resumeAfterComments = uiState.playerState == PlayerState.Playing
-            playerViewModel.pausePlayback()
-            danmakuViewModel.pause()
+            // 边看边刷评论：开启后不暂停播放与弹幕，让视频在评论面板后面继续跑。
+            // 默认关闭——播放器叠加评论列表会同时占用解码、弹幕渲染与 Compose
+            // 重组三份开销，低端盒子容易掉帧，所以交由用户按设备能力决定。
+            if (Prefs.commentKeepPlaying) {
+                resumeAfterComments = false
+            } else {
+                resumeAfterComments = uiState.playerState == PlayerState.Playing
+                playerViewModel.pausePlayback()
+                danmakuViewModel.pause()
+            }
             showCommentsDialog = true
         },
         onMediaProfileSettingChange = { action -> playerViewModel.updateMediaProfile(action) },

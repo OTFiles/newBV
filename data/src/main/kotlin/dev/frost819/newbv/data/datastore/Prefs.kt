@@ -351,6 +351,14 @@ object Prefs {
     /** 显示常显进度条。 */
     var showPersistentSeek by pref(PrefKeys.showPersistentSeek, false)
 
+    /**
+     * 打开评论时不暂停播放。
+     *
+     * 默认关闭，保持与上游一致的行为（低端电视同时解码 + 渲染评论列表容易掉帧）；
+     * 中高端设备可手动开启「边看边刷评论」。
+     */
+    var commentKeepPlaying by pref(PrefKeys.commentKeepPlaying, false)
+
     /** 显示播放器调试信息。 */
     var showPlayerDebugInfo by pref(PrefKeys.showPlayerDebugInfo, false)
 

@@ -23,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,7 +34,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -41,9 +44,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.ListItem
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import dev.frost819.newbv.app.util.ToastUtils
+import dev.frost819.newbv.app.viewmodel.settings.CopyLogResult
 import dev.frost819.newbv.app.viewmodel.settings.LogViewerViewModel
 import dev.frost819.newbv.core.focus.touchClickable
 import io.github.g0dkar.qrcode.QRCode
+import kotlinx.coroutines.launch
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -54,8 +60,11 @@ import java.io.File
  * 左右分栏布局：左侧为日志文件列表和手动创建按钮，右侧为二维码。
  *
  * 二维码内容根据焦点动态切换：
- * - 焦点在「手动保存日志」按钮上：二维码编码服务器首页 URL
+ * - 焦点在「手动保存日志」或「一键复制访问地址」上：二维码编码服务器首页 URL
  * - 焦点在某个日志文件上：二维码编码该文件的下载 URL
+ *
+ * 列表支持一键复制：选中日志条目直接复制日志内容（含下载地址），
+ * 其下方的「复制下载地址」条目只复制链接；顶部还提供服务器地址复制。
  *
  * @param onBack 返回上一页。
  * @param viewModel 日志查看 ViewModel。
@@ -66,6 +75,20 @@ fun LogViewerScreen(
     viewModel: LogViewerViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    /** 执行复制并统一下发提示。 */
+    fun runCopy(block: suspend () -> CopyLogResult) {
+        scope.launch {
+            val message =
+                when (val result = block()) {
+                    is CopyLogResult.Success -> result.message
+                    is CopyLogResult.Failure -> "复制失败：${result.reason}"
+                }
+            ToastUtils.show(context, message)
+        }
+    }
 
     var selectedFile by remember { mutableStateOf<File?>(null) }
     var isCreateFocused by remember { mutableStateOf(true) }
@@ -142,6 +165,39 @@ fun LogViewerScreen(
                         )
                     }
 
+                    item {
+                        ListItem(
+                            modifier =
+                                Modifier
+                                    .onFocusChanged {
+                                        if (it.hasFocus) {
+                                            isCreateFocused = true
+                                            selectedFile = null
+                                        }
+                                    },
+                            selected = false,
+                            onClick = { runCopy { viewModel.copyServerAddress() } },
+                            headlineContent = {
+                                Text(text = "一键复制访问地址")
+                            },
+                            supportingContent = {
+                                Text(
+                                    text =
+                                        if (uiState.serverAddress.isEmpty()) {
+                                            "等待服务器启动…"
+                                        } else {
+                                            uiState.serverAddress
+                                        },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                        )
+                    }
+
+                    // 每个日志文件占两行：条目本身 = 复制日志内容，下一行 = 只复制下载地址。
+                    // 不用 trailingContent 嵌按钮：tv-material3 的 ListItem 内再放可聚焦节点
+                    // 会让 D-Pad 上下导航行为变得不可预测，拆成两个平级条目更稳。
                     items(items = uiState.logFiles, key = { it.name }) { file ->
                         ListItem(
                             modifier =
@@ -152,7 +208,11 @@ fun LogViewerScreen(
                                     }
                                 },
                             selected = false,
-                            onClick = {},
+                            onClick = {
+                                // 点选日志条目 = 一键复制日志内容（含下载地址），
+                                // 不需要再弹二级菜单：遥控器上多一级导航体验很差
+                                runCopy { viewModel.copyLog(file, copyContent = true) }
+                            },
                             headlineContent = {
                                 Text(text = file.name)
                             },
@@ -161,9 +221,25 @@ fun LogViewerScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                 ) {
-                                    Text(text = viewModel.getLogTypeDisplayName(file))
+                                    Text(
+                                        text = "${viewModel.getLogTypeDisplayName(file)} · 点按复制内容",
+                                    )
                                     Text(text = "${file.length() / 1024} KB")
                                 }
+                            },
+                        )
+                        ListItem(
+                            modifier =
+                                Modifier.onFocusChanged {
+                                    if (it.hasFocus) {
+                                        isCreateFocused = false
+                                        selectedFile = file
+                                    }
+                                },
+                            selected = false,
+                            onClick = { runCopy { viewModel.copyLog(file, copyContent = false) } },
+                            headlineContent = {
+                                Text(text = "  复制「${file.name}」的下载地址")
                             },
                         )
                     }

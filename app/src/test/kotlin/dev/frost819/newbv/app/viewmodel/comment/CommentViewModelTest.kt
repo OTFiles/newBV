@@ -4,6 +4,7 @@ import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
 import dev.frost819.newbv.biliapi.entity.comment.Comment
 import dev.frost819.newbv.biliapi.entity.comment.CommentPage
+import dev.frost819.newbv.biliapi.http.entity.comment.CommentAddResult
 import dev.frost819.newbv.biliapi.repositories.CommentRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -436,6 +437,130 @@ class CommentViewModelTest {
                 val effect = awaitItem() as CommentUiEffect.ShowToast
                 assertThat(effect.message).contains("评论点赞失败")
             }
+        }
+
+    @Test
+    fun `post comment refreshes current sort and clears reply target`() =
+        runTest(dispatcher) {
+            val root = comment(rpid = 1L, replyCount = 0)
+            coEvery { repository.getComments(any(), any(), any(), any(), any()) } returns
+                page(listOf(root), page = 1, total = 1, hasMore = false)
+            coEvery { repository.postComment(any(), any(), any(), any()) } returns
+                CommentAddResult(code = 0, message = "0", rpid = 99L)
+
+            viewModel.load(100L)
+            advanceUntilIdle()
+            val loadCallsBefore = 1
+
+            viewModel.postComment("  新评论  ")
+            advanceUntilIdle()
+
+            // 提交时正文会被 trim，一级评论不带 root/parent
+            coVerify { repository.postComment(100L, "新评论", 0L, 0L) }
+            assertThat(viewModel.uiState.value.isPosting).isFalse()
+            assertThat(viewModel.uiState.value.replyTarget).isNull()
+            // 发表成功后重新拉取当前排序首屏
+            coVerify(exactly = loadCallsBefore + 1) {
+                repository.getComments(any(), any(), any(), any(), any())
+            }
+        }
+
+    @Test
+    fun `post comment failure keeps draft state and emits toast`() =
+        runTest(dispatcher) {
+            coEvery { repository.getComments(any(), any(), any(), any(), any()) } returns
+                page(listOf(comment(rpid = 1L)), page = 1, total = 1, hasMore = false)
+            coEvery { repository.postComment(any(), any(), any(), any()) } returns
+                CommentAddResult(code = -404, message = "啥都别说啦", rpid = 0L)
+
+            viewModel.load(100L)
+            advanceUntilIdle()
+
+            viewModel.uiEffect.test {
+                skipItems(0)
+                viewModel.postComment("测试")
+                advanceUntilIdle()
+
+                val effect = awaitItem() as CommentUiEffect.ShowToast
+                assertThat(effect.message).contains("啥都别说啦")
+            }
+            assertThat(viewModel.uiState.value.isPosting).isFalse()
+        }
+
+    @Test
+    fun `post empty comment does not call repository`() =
+        runTest(dispatcher) {
+            coEvery { repository.getComments(any(), any(), any(), any(), any()) } returns
+                page(listOf(comment(rpid = 1L)), page = 1, total = 1, hasMore = false)
+
+            viewModel.load(100L)
+            advanceUntilIdle()
+
+            viewModel.postComment("   ")
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) { repository.postComment(any(), any(), any(), any()) }
+            assertThat(viewModel.uiState.value.isPosting).isFalse()
+        }
+
+    @Test
+    fun `reply to root comment uses the same rpid for root and parent`() =
+        runTest(dispatcher) {
+            coEvery { repository.getComments(any(), any(), any(), any(), any()) } returns
+                page(listOf(comment(rpid = 1L, replyCount = 0)), page = 1, total = 1, hasMore = false)
+            coEvery { repository.getReplies(any(), any(), any(), any(), any()) } returns
+                page(emptyList(), page = 1, total = 0, hasMore = false)
+            coEvery { repository.postComment(any(), any(), any(), any()) } returns
+                CommentAddResult(code = 0, message = "0", rpid = 100L)
+
+            viewModel.load(100L)
+            advanceUntilIdle()
+
+            viewModel.replyTo(comment(rpid = 1L))
+            assertThat(viewModel.uiState.value.replyTarget?.rootRpid).isEqualTo(1L)
+            assertThat(viewModel.uiState.value.replyTarget?.parentRpid).isEqualTo(1L)
+
+            viewModel.postComment("回复一下")
+            advanceUntilIdle()
+
+            coVerify { repository.postComment(100L, "回复一下", 1L, 1L) }
+            assertThat(viewModel.uiState.value.replyTarget).isNull()
+        }
+
+    @Test
+    fun `reply to nested reply keeps root and parent distinct`() =
+        runTest(dispatcher) {
+            coEvery { repository.getComments(any(), any(), any(), any(), any()) } returns
+                page(listOf(comment(rpid = 1L, replyCount = 1)), page = 1, total = 1, hasMore = false)
+            coEvery { repository.getReplies(any(), any(), any(), any(), any()) } returns
+                page(listOf(comment(rpid = 11L, rootRpid = 1L)), page = 1, total = 1, hasMore = false)
+
+            viewModel.load(100L)
+            advanceUntilIdle()
+            // 展开楼中楼后再回复某条回复
+            viewModel.toggleReplies(1L)
+            advanceUntilIdle()
+
+            viewModel.replyTo(comment(rpid = 11L, rootRpid = 1L))
+
+            assertThat(viewModel.uiState.value.replyTarget?.rootRpid).isEqualTo(1L)
+            assertThat(viewModel.uiState.value.replyTarget?.parentRpid).isEqualTo(11L)
+        }
+
+    @Test
+    fun `cancel reply target returns to root comment mode`() =
+        runTest(dispatcher) {
+            coEvery { repository.getComments(any(), any(), any(), any(), any()) } returns
+                page(listOf(comment(rpid = 1L)), page = 1, total = 1, hasMore = false)
+
+            viewModel.load(100L)
+            advanceUntilIdle()
+
+            viewModel.replyTo(comment(rpid = 1L))
+            assertThat(viewModel.uiState.value.replyTarget).isNotNull()
+
+            viewModel.setReplyTarget(null)
+            assertThat(viewModel.uiState.value.replyTarget).isNull()
         }
 
     private fun page(

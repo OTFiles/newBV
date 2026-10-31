@@ -15,10 +15,22 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import javax.inject.Inject
+
+/** 写入剪贴板时显示在系统提示中的标签。 */
+private const val CLIPBOARD_LABEL = "newBV 日志"
+
+/**
+ * 复制到剪贴板的单次字符上限。
+ *
+ * 崩溃日志动辄几百 KB，一次性写入剪贴板在低端设备上会引起明显卡顿，
+ * 且手机上粘贴超长文本也几乎无法使用。截断后仍然给出完整下载地址。
+ */
+private const val MAX_CLIPBOARD_CHARS = 100_000
 
 /**
  * 日志查看页 ViewModel。
@@ -107,6 +119,84 @@ class LogViewerViewModel
         }
 
         /**
+         * 一键复制日志到剪贴板。
+         *
+         * 电视上没有方便的文件管理器与分享面板，用户排障时往往需要把日志内容或
+         * 下载地址发给开发者。这里两种模式共用一条链路：
+         * - [copyContent] 为 false 时只复制下载地址，方便在电脑浏览器直接打开；
+         * - 为 true 时复制「文件名 + 下载地址 + 日志正文」，正文过长时截断，
+         *   避免超大文本写入剪贴板导致部分低端设备卡顿。
+         *
+         * 文件读取与拼接在 IO 线程完成，剪贴板写入回到主线程。
+         *
+         * @param file 日志文件
+         * @param copyContent 是否复制日志正文
+         * @return 复制结果，调用方据此提示用户
+         */
+        suspend fun copyLog(
+            file: File,
+            copyContent: Boolean,
+        ): CopyLogResult =
+            withContext(Dispatchers.IO) {
+                val url = getFileUrl(file)
+                runCatching {
+                    val text =
+                        if (copyContent) {
+                            val body = file.readText()
+                            val truncated =
+                                if (body.length > MAX_CLIPBOARD_CHARS) {
+                                    body.take(MAX_CLIPBOARD_CHARS) +
+                                        "\n…（已截断，完整日志请访问 $url）"
+                                } else {
+                                    body
+                                }
+                            buildString {
+                                appendLine("# ${file.name}")
+                                appendLine("# $url")
+                                appendLine()
+                                append(truncated)
+                            }
+                        } else {
+                            url
+                        }
+                    withContext(Dispatchers.Main) {
+                        writeToClipboard(text)
+                    }
+                    CopyLogResult.Success(withContent = copyContent, chars = text.length)
+                }.getOrElse { error ->
+                    logger.error(error) { "Failed to copy log: ${file.name}" }
+                    CopyLogResult.Failure(error.message ?: "复制失败")
+                }
+            }
+
+        /**
+         * 复制日志服务器首页地址。
+         *
+         * 用户在手机上访问该地址即可打开日志管理页，比扫码更通用（部分电视没有
+         * 摄像头扫码环境，只能手输）。
+         */
+        suspend fun copyServerAddress(): CopyLogResult =
+            withContext(Dispatchers.Main) {
+                val address = getServerUrl()
+                runCatching {
+                    writeToClipboard(address)
+                    CopyLogResult.Success(withContent = false, chars = address.length)
+                }.getOrElse { error ->
+                    logger.error(error) { "Failed to copy server address" }
+                    CopyLogResult.Failure(error.message ?: "复制失败")
+                }
+            }
+
+        /** 写入系统剪贴板，供剪贴板写入的两条路径共用。 */
+        private fun writeToClipboard(text: String) {
+            val clipboard =
+                getApplication<Application>()
+                    .getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                    ?: throw IllegalStateException("当前设备不支持剪贴板")
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText(CLIPBOARD_LABEL, text))
+        }
+
+        /**
          * 获取服务器首页 URL（用于生成二维码）。
          *
          * @return 形如 `http://192.168.1.100:12345/` 的 URL。
@@ -189,3 +279,40 @@ data class LogViewerUiState(
     val serverAddress: String = "",
     val isServerReady: Boolean = false,
 )
+
+/**
+ * 一键复制日志的结果。
+ *
+ * UI 只关心「成功提示什么」和「失败提示什么」，因此把两者收敛成一个密封类型，
+ * 避免界面层再去判断异常类型。
+ */
+sealed interface CopyLogResult {
+    /**
+     * 复制成功。
+     *
+     * @property withContent 是否复制了日志正文（false 表示只复制了下载地址）
+     * @property chars 写入剪贴板的字符数
+     */
+    data class Success(
+        val withContent: Boolean,
+        val chars: Int,
+    ) : CopyLogResult {
+        /** 用于 Toast 的提示文案。 */
+        val message: String
+            get() =
+                if (withContent) {
+                    "已复制日志内容（$chars 字）"
+                } else {
+                    "已复制下载地址"
+                }
+    }
+
+    /**
+     * 复制失败。
+     *
+     * @property reason 失败原因，可直接展示给用户
+     */
+    data class Failure(
+        val reason: String,
+    ) : CopyLogResult
+}

@@ -67,6 +67,10 @@ internal object PrefKeys {
     val defaultPlaySpeed = intPreferencesKey("dps")
     val showVideoInfo = booleanPreferencesKey("show_video_info")
     val showPersistentSeek = booleanPreferencesKey("show_persistent_seek")
+
+    /** 打开评论时不暂停播放（边看边刷评论）。 */
+    val commentKeepPlaying = booleanPreferencesKey("comment_keep_playing")
+
     val showPlayerDebugInfo = booleanPreferencesKey("show_player_debug_info")
 
     // ===== 应用界面 =====

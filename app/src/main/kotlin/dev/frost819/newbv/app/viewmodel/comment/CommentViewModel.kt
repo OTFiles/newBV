@@ -23,6 +23,9 @@ import javax.inject.Inject
 
 private const val COMMENT_LOAD_TIMEOUT_MS = 10_000L
 
+/** 发表评论的超时。发表比读取更容易被风控排队，留更宽松的上限。 */
+private const val COMMENT_POST_TIMEOUT_MS = 20_000L
+
 /*
  * 评论区数据层级：
  *
@@ -117,12 +120,33 @@ data class CommentListState(
     internal fun canLoadMore(): Boolean = loaded && !initialLoading && !loadingMore && hasMore
 }
 
+/**
+ * 发表评论的目标。
+ *
+ * 为空值表示发一级评论；否则为回复指定楼中楼。回复时必须同时带根评论 ID 与
+ * 直接父评论 ID，B 站才能把评论挂到正确的层级上。
+ *
+ * @property rootRpid 根评论 ID
+ * @property parentRpid 直接父评论 ID（回复某条楼中楼时是那条楼中楼，回复根评论时等于根评论）
+ * @property targetUserName 被回复者的昵称，仅用于输入框提示与提示文案
+ */
+data class ReplyTarget(
+    val rootRpid: Long,
+    val parentRpid: Long,
+    val targetUserName: String,
+) {
+    /** 展示在输入框上方的回复提示。 */
+    val hint: String get() = "回复 @$targetUserName"
+}
+
 /** 评论弹窗 UI 状态。 */
 data class CommentUiState(
     val aid: Long = 0L,
     val sort: CommentSort = CommentSort.Hot,
     val commentLists: Map<CommentSort, CommentListState> = emptyMap(),
     val likingIds: Set<Long> = emptySet(),
+    val replyTarget: ReplyTarget? = null,
+    val isPosting: Boolean = false,
 ) {
     /** 当前排序对应的评论分页状态。 */
     val commentList: CommentListState get() = commentLists[sort] ?: CommentListState()
@@ -169,6 +193,9 @@ sealed interface CommentUiEffect {
     data class ShowToast(
         val message: String,
     ) : CommentUiEffect
+
+    /** 评论发表成功，UI 可据此收起输入框与清空草稿。 */
+    data object Posted : CommentUiEffect
 }
 
 /** [ReplyListState] 是否具备加载下一页的条件。 */
@@ -391,6 +418,133 @@ class CommentViewModel
                 } finally {
                     _uiState.update { it.copy(likingIds = it.likingIds - rpid) }
                 }
+            }
+        }
+
+        /**
+         * 设置或清除当前回复目标。
+         *
+         * 传入 null 表示回到发表一级评论。每次切换目标都同步清空输入框语义（由 UI 处理），
+         * 这里只负责状态。
+         *
+         * @param target 回复目标，null 表示发一级评论
+         */
+        fun setReplyTarget(target: ReplyTarget?) {
+            if (_uiState.value.isPosting) return
+            _uiState.update { it.copy(replyTarget = target) }
+        }
+
+        /**
+         * 把评论卡片转为回复目标。
+         *
+         * 回复根评论时 `parent` 与 `root` 均为该根评论 ID；回复楼中楼时
+         * `root` 取该条的根评论 ID，`parent` 取该条自身 ID。
+         *
+         * @param comment 被回复的评论
+         */
+        fun replyTo(comment: Comment) {
+            val root = comment.rootRpid.takeIf { it > 0L } ?: comment.rpid
+            setReplyTarget(
+                ReplyTarget(
+                    rootRpid = root,
+                    parentRpid = comment.rpid,
+                    targetUserName = comment.userName,
+                ),
+            )
+        }
+
+        /**
+         * 发表评论或回复评论。
+         *
+         * 成功后重新拉取当前排序的第一页，让新评论立刻可见（B 站不保证新评论
+         * 会出现在当前排序的首位，因此不用本地插入代替刷新）。发表完成后清空
+         * 回复目标并退出输入态。
+         *
+         * @param message 评论正文
+         */
+        fun postComment(message: String) {
+            val state = _uiState.value
+            val aid = state.aid
+            val content = message.trim()
+            if (aid <= 0L || state.isPosting) return
+            if (content.isEmpty()) {
+                viewModelScope.launch { _uiEffect.emit(CommentUiEffect.ShowToast("评论内容不能为空")) }
+                return
+            }
+            val target = state.replyTarget
+            _uiState.update { it.copy(isPosting = true) }
+            viewModelScope.launch {
+                try {
+                    val result =
+                        withTimeout(COMMENT_POST_TIMEOUT_MS) {
+                            commentRepository.postComment(
+                                aid = aid,
+                                message = content,
+                                rootRpid = target?.rootRpid ?: 0L,
+                                parentRpid = target?.parentRpid ?: 0L,
+                            )
+                        }
+                    if (!result.isSuccess) {
+                        // 服务端错误码是用户唯一能看到的失败原因，原样透出
+                        logger.error { "Post comment rejected: code=${result.code}, msg=${result.message}" }
+                        _uiEffect.emit(
+                            CommentUiEffect.ShowToast(
+                                result.message.ifBlank { "发表失败（${result.code}）" },
+                            ),
+                        )
+                        return@launch
+                    }
+                    logger.info { "Posted comment: aid=$aid, rpid=${result.rpid}, reply=${target != null}" }
+                    _uiState.update { it.copy(replyTarget = null) }
+                    _uiEffect.emit(CommentUiEffect.Posted)
+                    // 重新拉取当前排序首屏，把新评论/新回复带回列表
+                    refreshAfterPost(target)
+                } catch (error: Throwable) {
+                    rethrowCancellation(error)
+                    logger.error(error) { "Failed to post comment: aid=$aid" }
+                    _uiEffect.emit(CommentUiEffect.ShowToast("发表失败: ${error.message ?: "未知错误"}"))
+                } finally {
+                    _uiState.update { it.copy(isPosting = false) }
+                }
+            }
+        }
+
+        /**
+         * 发表成功后刷新受影响的列表。
+         *
+         * 一级评论：刷新当前排序首屏。
+         * 楼中楼：仅刷新对应根评论的回复列表，不扰动主评论列表与滚动位置；
+         * 若该根评论尚未展开则先把楼中楼展开。
+         */
+        private fun refreshAfterPost(target: ReplyTarget?) {
+            val state = _uiState.value
+            val aid = state.aid
+            val sort = state.sort
+            if (target == null) {
+                cancelComments(sort)
+                updateCommentList(sort) { it.copy(comments = emptyList(), page = 0, loaded = false) }
+                startCommentsLoad(sort = sort, aid = aid)
+                return
+            }
+            val commentList = state.commentLists[sort] ?: return
+            val replyList = commentList.replyList(target.rootRpid)
+            if (replyList == null || !replyList.loaded) {
+                startRepliesLoad(sort = sort, aid = aid, rootRpid = target.rootRpid, page = 1)
+            } else {
+                startRepliesLoad(sort = sort, aid = aid, rootRpid = target.rootRpid, page = replyList.page)
+            }
+            // 主评论上的回复数需要更新，否则界面仍显示旧数字
+            updateCommentList(sort) { list ->
+                list.copy(
+                    comments =
+                        list.comments.map { comment ->
+                            if (comment.rpid == target.rootRpid) {
+                                comment.copy(replyCount = comment.replyCount + 1)
+                            } else {
+                                comment
+                            }
+                        },
+                )
             }
         }
 

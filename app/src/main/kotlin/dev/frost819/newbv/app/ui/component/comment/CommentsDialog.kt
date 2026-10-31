@@ -20,9 +20,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Send
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Reply
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material.icons.rounded.ThumbUp
@@ -41,14 +47,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -72,6 +83,7 @@ import dev.frost819.newbv.app.viewmodel.comment.CommentUiEffect
 import dev.frost819.newbv.app.viewmodel.comment.CommentUiState
 import dev.frost819.newbv.app.viewmodel.comment.CommentViewModel
 import dev.frost819.newbv.app.viewmodel.comment.ReplyListState
+import dev.frost819.newbv.app.viewmodel.comment.ReplyTarget
 import dev.frost819.newbv.biliapi.entity.comment.Comment
 import dev.frost819.newbv.core.focus.isDpadDown
 import dev.frost819.newbv.core.focus.isDpadLeft
@@ -189,6 +201,9 @@ fun CommentsDialog(
     val context = LocalContext.current
     var imageViewerPictures by remember { mutableStateOf<List<String>?>(null) }
     var imageViewerIndex by remember { mutableIntStateOf(0) }
+    // 草稿上提到 Dialog 层：发表成功后需要清空，而输入栏自身在成功后不应被重建
+    var draft by remember(aid) { mutableStateOf("") }
+    var draftResetToken by remember(aid) { mutableIntStateOf(0) }
 
     LaunchedEffect(aid) {
         viewModel.load(aid)
@@ -198,6 +213,12 @@ fun CommentsDialog(
         viewModel.uiEffect.collect { effect ->
             when (effect) {
                 is CommentUiEffect.ShowToast -> ToastUtils.show(context, effect.message)
+                CommentUiEffect.Posted -> {
+                    // 清空草稿：递增 token 让输入框内部重建，避免在外部重置时丢失焦点
+                    draft = ""
+                    draftResetToken++
+                    ToastUtils.show(context, "发表成功")
+                }
             }
         }
     }
@@ -244,6 +265,12 @@ fun CommentsDialog(
                     onRetryReplies = viewModel::retryReplies,
                     onLoadMoreReplies = viewModel::loadMoreReplies,
                     onToggleLike = viewModel::toggleLike,
+                    onPostComment = viewModel::postComment,
+                    onReply = viewModel::replyTo,
+                    onCancelReply = { viewModel.setReplyTarget(null) },
+                    draft = draft,
+                    onDraftChange = { draft = it },
+                    draftResetToken = draftResetToken,
                     onImageClick = { pictures, index ->
                         imageViewerPictures = pictures
                         imageViewerIndex = index
@@ -274,6 +301,12 @@ private fun CommentsContent(
     onRetryReplies: (Long) -> Unit,
     onLoadMoreReplies: (Long) -> Unit,
     onToggleLike: (Long) -> Unit,
+    onPostComment: (String) -> Unit,
+    onReply: (Comment) -> Unit,
+    onCancelReply: () -> Unit,
+    draft: String,
+    onDraftChange: (String) -> Unit,
+    draftResetToken: Int,
     onImageClick: (List<String>, Int) -> Unit,
 ) {
     // 热门与最新各自维护滚动状态：共用一个 LazyListState 时，Compose 会按首个可见 item 的
@@ -328,7 +361,7 @@ private fun CommentsContent(
 
         when {
             state.loading -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text("评论加载中…")
                 }
             }
@@ -337,7 +370,7 @@ private fun CommentsContent(
                 LaunchedEffect(Unit) {
                     runCatching { retryFocusRequester.requestFocus() }
                 }
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("评论加载失败")
                         Spacer(Modifier.height(12.dp))
@@ -351,13 +384,13 @@ private fun CommentsContent(
                 }
             }
             state.comments.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text("暂无评论")
                 }
             }
             else -> {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
                     state = listState,
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
@@ -379,6 +412,7 @@ private fun CommentsContent(
                                     onToggleTextExpand = { toggleCommentText(rpid) },
                                     onToggleReplies = { onToggleReplies(rpid) },
                                     onToggleLike = { onToggleLike(rpid) },
+                                    onReply = { onReply(comment) },
                                     onImageClick = onImageClick,
                                 )
                             }
@@ -391,6 +425,7 @@ private fun CommentsContent(
                                     isTextExpanded = expandedCommentIds[rpid] == true,
                                     onToggleTextExpand = { toggleCommentText(rpid) },
                                     onToggleLike = { onToggleLike(rpid) },
+                                    onReply = { onReply(comment) },
                                     onImageClick = onImageClick,
                                 )
                             }
@@ -429,6 +464,16 @@ private fun CommentsContent(
                 }
             }
         }
+
+        CommentComposer(
+            state = state,
+            mode = mode,
+            draft = draft,
+            onDraftChange = onDraftChange,
+            draftResetToken = draftResetToken,
+            onSubmit = onPostComment,
+            onCancelReply = onCancelReply,
+        )
     }
 }
 
@@ -444,6 +489,7 @@ private fun ReplyCommentCard(
     isTextExpanded: Boolean,
     onToggleTextExpand: () -> Unit,
     onToggleLike: () -> Unit,
+    onReply: () -> Unit,
     onImageClick: (List<String>, Int) -> Unit,
 ) {
     CommentCard(
@@ -457,6 +503,7 @@ private fun ReplyCommentCard(
         onToggleTextExpand = onToggleTextExpand,
         onToggleReplies = {},
         onToggleLike = onToggleLike,
+        onReply = onReply,
         onImageClick = onImageClick,
         indent = REPLY_INDENT,
     )
@@ -470,6 +517,7 @@ private fun ReplyCommentCard(
  *
  * @param previewReplyCount 收起态已经展示的楼中楼预览条数；大于 0 时回复按钮文案
  *   变为「共 N 条回复」，提示点击后进入完整分页列表
+ * @param onReply 点击本条卡片的「回复」按钮，把该评论设为回复目标
  */
 @Composable
 internal fun CommentCard(
@@ -483,6 +531,7 @@ internal fun CommentCard(
     onToggleTextExpand: () -> Unit,
     onToggleReplies: () -> Unit,
     onToggleLike: () -> Unit,
+    onReply: () -> Unit,
     onImageClick: (List<String>, Int) -> Unit,
     indent: Dp = 0.dp,
     previewReplyCount: Int = 0,
@@ -613,6 +662,11 @@ internal fun CommentCard(
                             onClick = onToggleTextExpand,
                         )
                     }
+                    DialogActionButton(
+                        text = "回复",
+                        icon = Icons.Outlined.Reply,
+                        onClick = onReply,
+                    )
                 }
             }
         }
@@ -737,6 +791,187 @@ private fun DialogActionButton(
         }
     }
 }
+
+/**
+ * 评论输入栏。
+ *
+ * 底部常驻，包含：回复目标提示条（仅回复时出现）、多行输入框与发送按钮。
+ *
+ * TV 端没有物理键盘，输入依赖系统输入法（遥控器数字键盘按键会触发输入法弹窗）；
+ * 有硬键盘/鼠标时也可直接输入。因此这里不重建一套自制键盘，只在输入框上做好
+ * D-Pad 焦点样式，并在发送成功后清空草稿。
+ *
+ * @param state 当前评论状态（提供回复目标与发送中标志）
+ * @param mode 弹窗模式，影响输入框行数
+ * @param draft 当前草稿文本，由 Dialog 层持有以便发表成功后清空
+ * @param onDraftChange 草稿变更回调
+ * @param draftResetToken 草稿重置令牌，变化时输入框会重新获取焦点并清空内部状态
+ * @param onSubmit 提交回调，传入去掉首尾空白的正文
+ * @param onCancelReply 取消回复，回到发表一级评论
+ */
+@Composable
+private fun CommentComposer(
+    state: CommentUiState,
+    mode: CommentDialogMode,
+    draft: String,
+    onDraftChange: (String) -> Unit,
+    draftResetToken: Int,
+    onSubmit: (String) -> Unit,
+    onCancelReply: () -> Unit,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+
+    // 草稿重置令牌变化：把焦点拉回输入框，方便连续发表
+    LaunchedEffect(draftResetToken) {
+        if (draftResetToken > 0) {
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
+
+    val target = state.replyTarget
+    val canSubmit = draft.isNotBlank() && !state.isPosting
+
+    fun submit() {
+        if (!canSubmit) return
+        onSubmit(draft)
+    }
+
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        target?.let { replyTarget ->
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(MaterialTheme.shapes.small)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    modifier = Modifier.weight(1f),
+                    text = replyTarget.hint,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                DialogActionButton(
+                    text = "取消",
+                    icon = Icons.Outlined.Close,
+                    onClick = onCancelReply,
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            Surface(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .focusRequester(focusRequester),
+                onClick = { runCatching { focusRequester.requestFocus() } },
+                shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
+                colors =
+                    ClickableSurfaceDefaults.colors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                    ),
+                border =
+                    ClickableSurfaceDefaults.border(
+                        focusedBorder =
+                            Border(
+                                border =
+                                    androidx.compose.foundation.BorderStroke(
+                                        2.dp,
+                                        MaterialTheme.colorScheme.border,
+                                    ),
+                                shape = MaterialTheme.shapes.small,
+                            ),
+                    ),
+            ) {
+                Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                    if (draft.isEmpty()) {
+                        Text(
+                            text = target?.let { "回复 @${it.targetUserName}…" } ?: "发一条友善的评论…",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    BasicTextField(
+                        value = draft,
+                        onValueChange = { if (it.length <= COMMENT_INPUT_MAX_LENGTH) onDraftChange(it) },
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .onFocusChanged { isFocused = it.isFocused },
+                        textStyle =
+                            TextStyle(
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = MaterialTheme.typography.bodyMedium.fontSize,
+                            ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        maxLines = if (mode == CommentDialogMode.Player) 3 else 5,
+                        keyboardOptions =
+                            KeyboardOptions(
+                                capitalization = KeyboardCapitalization.None,
+                                imeAction = ImeAction.Send,
+                            ),
+                        keyboardActions = KeyboardActions(onSend = { submit() }),
+                    )
+                }
+            }
+
+            DialogActionButton(
+                text =
+                    when {
+                        state.isPosting -> "发送中"
+                        else -> "发送"
+                    },
+                icon = Icons.AutoMirrored.Outlined.Send,
+                onClick = ::submit,
+                enabled = canSubmit,
+            )
+        }
+
+        // 有内容时常显字数；聚焦但为空时给出快捷键提示，避免用户以为遥控器无法输入
+        when {
+            draft.isNotEmpty() -> {
+                Text(
+                    text = "${draft.length} / $COMMENT_INPUT_MAX_LENGTH",
+                    style = MaterialTheme.typography.labelSmall,
+                    color =
+                        if (draft.length >= COMMENT_INPUT_MAX_LENGTH) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                )
+            }
+            isFocused -> {
+                Text(
+                    text = "遥控器按确认键唤出输入法，也可直接用鼠标/键盘输入",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** 输入框本地字符限制，与服务端 1000 字上限一致。 */
+private const val COMMENT_INPUT_MAX_LENGTH = 1000
 
 /**
  * 图片查看覆盖层。
@@ -902,6 +1137,12 @@ private fun CommentsContentPreview() {
             onRetryReplies = {},
             onLoadMoreReplies = {},
             onToggleLike = {},
+            onPostComment = {},
+            onReply = {},
+            onCancelReply = {},
+            draft = "",
+            onDraftChange = {},
+            draftResetToken = 0,
             onImageClick = { _, _ -> },
         )
     }

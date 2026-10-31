@@ -9,6 +9,7 @@ import dev.frost819.newbv.biliapi.entity.ApiType
 import dev.frost819.newbv.biliapi.entity.comment.Comment
 import dev.frost819.newbv.biliapi.entity.comment.CommentPage
 import dev.frost819.newbv.biliapi.http.BiliHttpApi
+import dev.frost819.newbv.biliapi.http.entity.comment.CommentAddResult
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 
@@ -170,6 +171,43 @@ class CommentRepository(
     }
 
     /**
+     * 发表评论或回复评论。
+     *
+     * 只允许 Web 通道：发表评论需要 `bili_jct`（CSRF），而 App access_key 通道
+     * 在部分账号上会被风控拦截。另外，发表前先在本地做一次参数校验，
+     * 让空内容、超长、未登录这类问题在发请求前就得到明确的提示。
+     *
+     * @param aid 视频 AV 号
+     * @param message 评论正文（会自动去除首尾空白）
+     * @param rootRpid 根评论 ID，回复楼中楼时必填
+     * @param parentRpid 直接父评论 ID，回复楼中楼时必填
+     * @return 发表结果，包含 B 站原始返回码与提示
+     * @throws IllegalArgumentException 内容为空、超长或未登录时抛出
+     */
+    suspend fun postComment(
+        aid: Long,
+        message: String,
+        rootRpid: Long = 0L,
+        parentRpid: Long = 0L,
+    ): CommentAddResult {
+        val content = message.trim()
+        require(aid > 0L) { "视频 ID 无效" }
+        require(content.isNotEmpty()) { "评论内容不能为空" }
+        require(content.length <= MAX_COMMENT_LENGTH) { "评论最多 $MAX_COMMENT_LENGTH 个字" }
+
+        val csrf = authRepository.biliJct?.takeIf { it.isNotBlank() }
+        require(csrf != null) { "请先登录后再发表评论" }
+
+        return BiliHttpApi.addVideoComment(
+            aid = aid,
+            message = content,
+            rootRpid = rootRpid,
+            parentRpid = parentRpid,
+            csrf = csrf,
+        )
+    }
+
+    /**
      * 解析 Web 通道的评论 JSON。
      *
      * 主评论与楼中楼共用 `replies` 数组，但总数与页码字段不同：
@@ -291,6 +329,9 @@ class CommentRepository(
          * Web 与 gRPC 两条通道都在解析时截断，UI 直接展示即可，无需再次限制。
          */
         const val MAX_REPLY_PREVIEW_COUNT = 3
+
+        /** B 站评论正文的最大长度（服务端限制为 1000 字）。 */
+        const val MAX_COMMENT_LENGTH = 1000
     }
 }
 

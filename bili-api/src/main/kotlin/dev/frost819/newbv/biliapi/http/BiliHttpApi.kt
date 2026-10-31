@@ -9,6 +9,7 @@ import dev.frost819.newbv.biliapi.entity.pgc.PgcType
 import dev.frost819.newbv.biliapi.http.BiliHttpApi.getRegionDynamic
 import dev.frost819.newbv.biliapi.http.entity.BiliResponse
 import dev.frost819.newbv.biliapi.http.entity.BiliResponseWithoutData
+import dev.frost819.newbv.biliapi.http.entity.comment.CommentAddResult
 import dev.frost819.newbv.biliapi.http.entity.danmaku.DanmakuData
 import dev.frost819.newbv.biliapi.http.entity.danmaku.DanmakuResponse
 import dev.frost819.newbv.biliapi.http.entity.dynamic.DynamicData
@@ -104,6 +105,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import org.jsoup.nodes.Document
 import java.io.InputStream
 import javax.xml.parsers.DocumentBuilderFactory
@@ -1003,6 +1006,63 @@ object BiliHttpApi {
                     header("Referer", "https://www.bilibili.com")
                 }.body<BiliResponseWithoutData>()
         return (response.code == 0) to response.message
+    }
+
+    /**
+     * 发表视频评论或回复评论。
+     *
+     * 与点赞不同，这里不吞掉业务错误码，而是把 code/message 原样返回给调用方：
+     * 发表评论的失败原因（未登录、被 UP 主拉黑、评论被关闭、内容触发风控、
+     * 等级不足等）对用户来说都是有意义的提示，需要区分展示。
+     *
+     * `root` 与 `parent` 都不传时发表一级评论；回复时两者都要传（B 站要求
+     * 同时给出根评论与直接父评论，楼中楼就是这样定位的）。
+     *
+     * @param aid 视频 AV 号
+     * @param message 评论正文
+     * @param rootRpid 根评论 ID，回复楼中楼时必填
+     * @param parentRpid 直接父评论 ID，回复楼中楼时必填
+     * @param csrf Web 请求的 bili_jct
+     * @param accessKey App access_key
+     * @return 发表结果，成功时 `rpid` 为新评论 ID（可能为 0，取决于服务端返回）
+     */
+    suspend fun addVideoComment(
+        aid: Long,
+        message: String,
+        rootRpid: Long = 0L,
+        parentRpid: Long = 0L,
+        csrf: String? = null,
+        accessKey: String? = null,
+    ): CommentAddResult {
+        val response =
+            client
+                .post("/x/v2/reply/add") {
+                    setBody(
+                        FormDataContent(
+                            Parameters.build {
+                                append("type", "1")
+                                append("oid", aid.toString())
+                                append("message", message)
+                                append("plat", "1")
+                                if (rootRpid > 0L) append("root", rootRpid.toString())
+                                if (parentRpid > 0L) append("parent", parentRpid.toString())
+                                csrf?.takeIf { it.isNotBlank() }?.let { append("csrf", it) }
+                                accessKey?.takeIf { it.isNotBlank() }?.let { append("access_key", it) }
+                            },
+                        ),
+                    )
+                    header("Referer", "https://www.bilibili.com")
+                }.body<BiliResponse<JsonObject>>()
+        return CommentAddResult(
+            code = response.code,
+            message = response.message,
+            rpid =
+                (response.data ?: response.result)
+                    ?.get("rpid")
+                    ?.jsonPrimitive
+                    ?.longOrNull
+                    ?: 0L,
+        )
     }
 
     /**
