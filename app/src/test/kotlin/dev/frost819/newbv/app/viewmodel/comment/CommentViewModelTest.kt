@@ -471,7 +471,7 @@ class CommentViewModelTest {
             coEvery { repository.getComments(any(), any(), any(), any(), any()) } returns
                 page(listOf(comment(rpid = 1L)), page = 1, total = 1, hasMore = false)
             coEvery { repository.postComment(any(), any(), any(), any()) } returns
-                CommentAddResult(code = -404, message = "啥都别说啦", rpid = 0L)
+                CommentAddResult(code = 12016, message = "啥都别说啦", rpid = 0L)
 
             viewModel.load(100L)
             advanceUntilIdle()
@@ -481,8 +481,10 @@ class CommentViewModelTest {
                 viewModel.postComment("测试")
                 advanceUntilIdle()
 
+                // 已知错误码走 CommentAddResult.userMessage 的映射文案，
+                // 而不是直接透出服务端 message
                 val effect = awaitItem() as CommentUiEffect.ShowToast
-                assertThat(effect.message).contains("啥都别说啦")
+                assertThat(effect.message).contains("敏感信息")
             }
             assertThat(viewModel.uiState.value.isPosting).isFalse()
         }

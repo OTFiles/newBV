@@ -975,6 +975,8 @@ object BiliHttpApi {
     /**
      * 点赞或取消点赞评论。
      *
+     * 对应文档：docs/bilibili-API-collect-master/docs/comment/action.md（「点赞评论」一节）
+     *
      * @param aid 视频 AV 号
      * @param rpid 评论 ID
      * @param like 是否点赞
@@ -1011,12 +1013,19 @@ object BiliHttpApi {
     /**
      * 发表视频评论或回复评论。
      *
+     * 对应文档：docs/bilibili-API-collect-master/docs/comment/action.md（「发表评论」一节）
+     * 鉴权：Cookie（SESSDATA）+ csrf，或 App access_key
+     *
      * 与点赞不同，这里不吞掉业务错误码，而是把 code/message 原样返回给调用方：
      * 发表评论的失败原因（未登录、被 UP 主拉黑、评论被关闭、内容触发风控、
-     * 等级不足等）对用户来说都是有意义的提示，需要区分展示。
+     * 等级不足等）对用户来说都是有意义的提示，需要区分展示。错误码到用户提示的
+     * 映射见 [dev.frost819.newbv.biliapi.http.entity.comment.CommentAddResult.userMessage]。
      *
-     * `root` 与 `parent` 都不传时发表一级评论；回复时两者都要传（B 站要求
-     * 同时给出根评论与直接父评论，楼中楼就是这样定位的）。
+     * 参数语义依据文档：
+     * - `root` 与 `parent` 都不传时发表一级评论；
+     * - 回复楼中楼时两者都要传：文档明确「二级评论同根评论 id，大于二级评论为要回复的评论 id」，
+     *   即 parent 指向被回复的那条评论，root 始终指向根评论。
+     * - `plat` 取 1（web 端），与 csrf 通道保持一致。
      *
      * @param aid 视频 AV 号
      * @param message 评论正文

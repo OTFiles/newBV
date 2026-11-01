@@ -485,13 +485,10 @@ class CommentViewModel
                             )
                         }
                     if (!result.isSuccess) {
-                        // 服务端错误码是用户唯一能看到的失败原因，原样透出
+                        // 错误码 → 可操作提示的映射在 CommentAddResult 里，
+                        // ViewModel 只负责记日志和把结果透给 UI
                         logger.error { "Post comment rejected: code=${result.code}, msg=${result.message}" }
-                        _uiEffect.emit(
-                            CommentUiEffect.ShowToast(
-                                result.message.ifBlank { "发表失败（${result.code}）" },
-                            ),
-                        )
+                        _uiEffect.emit(CommentUiEffect.ShowToast(result.userMessage))
                         return@launch
                     }
                     logger.info { "Posted comment: aid=$aid, rpid=${result.rpid}, reply=${target != null}" }

@@ -34,6 +34,8 @@ class CommentRepository(
     /**
      * 获取主评论分页。
      *
+     * 对应文档：docs/bilibili-API-collect-master/docs/comment/list.md（翻页加载 / 懒加载两节）
+     *
      * @param aid 视频 AV 号
      * @param sort 排序方式，0 为时间，1 为热度，2 为回复数
      * @param page 页码，从 1 开始（Web 通道使用）
@@ -90,6 +92,8 @@ class CommentRepository(
 
     /**
      * 获取根评论下的楼中楼分页。
+     *
+     * 对应文档：docs/bilibili-API-collect-master/docs/comment/list.md（「获取指定评论的回复」一节）
      *
      * @param aid 视频 AV 号
      * @param rootRpid 根评论 ID
@@ -172,6 +176,8 @@ class CommentRepository(
 
     /**
      * 发表评论或回复评论。
+     *
+     * 对应文档：docs/bilibili-API-collect-master/docs/comment/action.md（「发表评论」一节）
      *
      * 只允许 Web 通道：发表评论需要 `bili_jct`（CSRF），而 App access_key 通道
      * 在部分账号上会被风控拦截。另外，发表前先在本地做一次参数校验，

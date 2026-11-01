@@ -313,6 +313,21 @@ dev.frost819.newbv/
 
 `docs/bilibili-API-collect-master/docs/` 是社区维护的 B 站 API 文档，包含字段定义、参数说明、错误码。
 
+> **文档来源说明（2026 年现状）**
+>
+> 上游 `SocialSisterYi/bilibili-API-collect` 已 **archived**（默认分支被改为 `deprecated`），
+> 不再接收更新。本项目使用的是贡献者归档复刻
+> [`pskdje/bilibili-API-collect`](https://github.com/pskdje/bilibili-API-collect) 的 `master` 分支，
+> 该分支保留原仓库完整目录结构（`docs/comment/`、`docs/video/`、`grpc_api/` 等）。
+>
+> - 该目录已被 `.gitignore` 忽略（体积 ~9.5MB，属参考资料不进仓库），**需自行下载**：
+>   ```bash
+>   curl -L https://codeload.github.com/pskdje/bilibili-API-collect/tar.gz/refs/heads/master \
+>     | tar xz && mv bilibili-API-collect-master docs/
+>   ```
+> - 另有继任项目 [`BACNext/BACNext`](https://github.com/BACNext/BACNext)，但截至整理时仅有 13 个文件，尚不可用
+> - 文档可能滞后于线上接口；文档与实际不符时按 4.4 抓包验证
+
 **常用文档**：
 
 | 功能 | 文档路径 |
