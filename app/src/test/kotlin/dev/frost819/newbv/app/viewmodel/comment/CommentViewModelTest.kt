@@ -33,6 +33,13 @@ class CommentViewModelTest {
     fun setUp() {
         Dispatchers.setMain(dispatcher)
         repository = mockk()
+        // 默认让懒加载通道失败，触发 ViewModel 的自动降级到翻页通道。
+        // 这样既有用例（都只 stub 了 getComments）无需逐个改写，
+        // 同时每次运行都在验证降级路径本身可用。
+        // 需要专门验证游标通道的用例会在用例内用 coEvery 覆盖这个 stub。
+        coEvery {
+            repository.getCommentsByCursor(any(), any(), any())
+        } throws IllegalStateException("cursor channel disabled in tests")
         viewModel = CommentViewModel(repository)
     }
 
@@ -563,6 +570,167 @@ class CommentViewModelTest {
 
             viewModel.setReplyTarget(null)
             assertThat(viewModel.uiState.value.replyTarget).isNull()
+        }
+
+    // ===== 懒加载通道（游标翻页）与降级 =====
+
+    @Test
+    fun `cursor channel is used on first load and feeds hots and top`() =
+        runTest(dispatcher) {
+            val pinned = comment(rpid = 1L)
+            val hot = comment(rpid = 2L)
+            val normal = comment(rpid = 3L)
+            coEvery { repository.getCommentsByCursor(100L, any(), any()) } returns
+                CommentPage(
+                    comments = listOf(normal),
+                    page = 1,
+                    total = 3,
+                    hasMore = true,
+                    paginationOffset = """{"type":3,"direction":1,"Data":{"cursor":99}}""",
+                    hots = listOf(hot),
+                    topReplies = listOf(pinned),
+                    supportedModes = listOf(2, 3),
+                )
+
+            viewModel.load(100L)
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value.commentList
+            assertThat(state.useCursor).isTrue()
+            assertThat(state.topReplies).containsExactly(pinned)
+            assertThat(state.hots).containsExactly(hot)
+            assertThat(state.paginationOffset).isNotNull()
+            assertThat(state.supportedModes).containsExactly(2, 3)
+            // 走通游标通道后不应再请求翻页通道
+            coVerify(exactly = 0) { repository.getComments(any(), any(), any(), any(), any()) }
+        }
+
+    @Test
+    fun `cursor failure falls back to paging and records degraded state`() =
+        runTest(dispatcher) {
+            val root = comment(rpid = 1L)
+            coEvery { repository.getComments(any(), any(), any(), any(), any()) } returns
+                page(listOf(root), page = 1, total = 1, hasMore = false)
+
+            viewModel.load(100L)
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value.commentList
+            // 降级后必须标记 useCursor=false，避免下次加载重复打失败请求
+            assertThat(state.useCursor).isFalse()
+            assertThat(state.comments).containsExactly(root)
+            assertThat(state.initialError).isFalse()
+        }
+
+    @Test
+    fun `load more uses pagination offset on cursor channel`() =
+        runTest(dispatcher) {
+            val first = comment(rpid = 1L)
+            coEvery { repository.getCommentsByCursor(100L, any(), any()) } returns
+                CommentPage(
+                    comments = listOf(first),
+                    page = 1,
+                    total = 2,
+                    hasMore = true,
+                    paginationOffset = """{"type":3,"direction":1,"Data":{"cursor":99}}""",
+                )
+            viewModel.load(100L)
+            advanceUntilIdle()
+
+            coEvery { repository.getCommentsByCursor(100L, any(), any()) } returns
+                CommentPage(
+                    comments = listOf(comment(rpid = 2L)),
+                    page = 1,
+                    total = 2,
+                    hasMore = false,
+                    paginationOffset = null,
+                )
+            viewModel.loadMoreComments()
+            advanceUntilIdle()
+
+            // 第二页必须把第一页返回的 offset 原样传回去
+            coVerify {
+                repository.getCommentsByCursor(
+                    100L,
+                    any(),
+                    """{"type":3,"direction":1,"Data":{"cursor":99}}""",
+                )
+            }
+            assertThat(viewModel.uiState.value.comments).hasSize(2)
+            assertThat(viewModel.uiState.value.hasMore).isFalse()
+        }
+
+    @Test
+    fun `top replies are excluded from appended pages`() =
+        runTest(dispatcher) {
+            val pinned = comment(rpid = 1L)
+            coEvery { repository.getCommentsByCursor(100L, any(), any()) } returns
+                CommentPage(
+                    comments = listOf(pinned, comment(rpid = 2L)),
+                    page = 1,
+                    total = 3,
+                    hasMore = true,
+                    paginationOffset = "off1",
+                    topReplies = listOf(pinned),
+                )
+            viewModel.load(100L)
+            advanceUntilIdle()
+
+            // 第二页又返回了同一条置顶评论，应被过滤掉
+            coEvery { repository.getCommentsByCursor(100L, any(), any()) } returns
+                CommentPage(
+                    comments = listOf(pinned, comment(rpid = 3L)),
+                    page = 1,
+                    total = 3,
+                    hasMore = false,
+                )
+            viewModel.loadMoreComments()
+            advanceUntilIdle()
+
+            val rpids = viewModel.uiState.value.comments.map { it.rpid }
+            // 置顶评论只在 topReplies 里，普通列表不应重复出现
+            assertThat(rpids).doesNotContain(1L)
+            assertThat(rpids).containsExactly(2L, 3L)
+        }
+
+    @Test
+    fun `mixed sort is requested with cursor mode 1`() =
+        runTest(dispatcher) {
+            coEvery { repository.getCommentsByCursor(any(), any(), any()) } returns
+                CommentPage(
+                    comments = listOf(comment(rpid = 1L)),
+                    page = 1,
+                    total = 1,
+                    hasMore = false,
+                    supportedModes = listOf(1, 2, 3),
+                )
+            viewModel.load(100L)
+            advanceUntilIdle()
+
+            viewModel.changeSort(CommentSort.Mixed)
+            advanceUntilIdle()
+
+            coVerify { repository.getCommentsByCursor(100L, 1, any()) }
+        }
+
+    @Test
+    fun `is sort supported reflects server declared modes`() =
+        runTest(dispatcher) {
+            coEvery { repository.getCommentsByCursor(any(), any(), any()) } returns
+                CommentPage(
+                    comments = listOf(comment(rpid = 1L)),
+                    page = 1,
+                    total = 1,
+                    hasMore = false,
+                    supportedModes = listOf(2, 3),
+                )
+            viewModel.load(100L)
+            advanceUntilIdle()
+
+            // 服务端只声明了 2/3，混合排序（1）不可用
+            assertThat(viewModel.isSortSupported(CommentSort.Hot)).isTrue()
+            assertThat(viewModel.isSortSupported(CommentSort.Latest)).isTrue()
+            assertThat(viewModel.isSortSupported(CommentSort.Mixed)).isFalse()
         }
 
     private fun page(

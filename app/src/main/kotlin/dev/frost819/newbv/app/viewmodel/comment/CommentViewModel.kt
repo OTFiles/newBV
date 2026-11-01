@@ -37,16 +37,35 @@ private const val COMMENT_POST_TIMEOUT_MS = 20_000L
  *         └── replies: List<Comment>                       楼中楼内的回复
  */
 
-/** 评论排序方式。 */
+/**
+ * 评论排序方式。
+ *
+ * 两套通道的取值语义不同，不能共用一个字段：
+ * - 翻页通道 `/x/v2/reply` 与 gRPC 用 [apiValue]（0 时间 / 1 点赞 / 2 回复数）
+ * - 懒加载通道 `/x/v2/reply/wbi/main` 用 [cursorMode]（0|3 仅热度 / 1 热度+时间 / 2 仅时间）
+ *
+ * @property apiValue 翻页通道与 gRPC 通道的排序取值
+ * @property cursorMode 懒加载通道 `mode` 参数的取值
+ * @property displayName 设置项与排序按钮的显示名
+ */
 enum class CommentSort(
     val apiValue: Int,
+    val cursorMode: Int,
     val displayName: String,
 ) {
-    /** 按热度排序。 */
-    Hot(1, "热门"),
+    /** 按热度排序（懒加载通道 mode=3，仅按热度）。 */
+    Hot(apiValue = 1, cursorMode = 3, displayName = "热门"),
 
-    /** 按发布时间排序。 */
-    Latest(0, "最新"),
+    /**
+     * 热度 + 时间混合排序（懒加载通道 mode=1）。
+     *
+     * 这是 B 站 Web 端评论区的默认行为：高热评论与最新评论混排。
+     * 翻页通道没有等价模式，降级时使用 [Hot] 的取值。
+     */
+    Mixed(apiValue = 1, cursorMode = 1, displayName = "综合"),
+
+    /** 按发布时间排序（懒加载通道 mode=2，仅按时间）。 */
+    Latest(apiValue = 0, cursorMode = 2, displayName = "最新"),
 }
 
 /**
@@ -96,6 +115,12 @@ data class ReplyListState(
  * @property loadMoreError 后续页是否加载失败
  * @property replyLists 根评论 ID 到楼中楼状态的映射
  * @property replyPreviews 根评论 ID 到楼中楼预览的映射（来自主评论接口，收起态展示）
+ * @property hots 热评列表（仅懒加载通道返回）
+ * @property topReplies 置顶评论（仅懒加载通道返回），UI 需与 [comments] 去重后单独展示
+ * @property paginationOffset 懒加载通道的下一页游标；非 null 表示当前走的是游标通道
+ * @property useCursor 是否使用懒加载通道。首次失败后置为 false 并降级到翻页通道，
+ *   降级后本次弹窗内不再重试游标通道，避免每次翻页都多打一次失败请求
+ * @property supportedModes 服务端声明的可用排序方式（`cursor.support_mode`），空表示未知
  */
 data class CommentListState(
     val comments: List<Comment> = emptyList(),
@@ -109,7 +134,15 @@ data class CommentListState(
     val loadMoreError: Boolean = false,
     val replyLists: Map<Long, ReplyListState> = emptyMap(),
     val replyPreviews: Map<Long, List<Comment>> = emptyMap(),
+    val hots: List<Comment> = emptyList(),
+    val topReplies: List<Comment> = emptyList(),
+    val paginationOffset: String? = null,
+    val useCursor: Boolean = true,
+    val supportedModes: List<Int> = emptyList(),
 ) {
+    /** 置顶评论的 rpid 集合，用于从普通列表里剔除重复项。 */
+    val topRpidSet: Set<Long> get() = topReplies.mapTo(HashSet()) { it.rpid }
+
     /** 获取指定根评论的楼中楼状态。 */
     fun replyList(rootRpid: Long): ReplyListState? = replyLists[rootRpid]
 
@@ -277,6 +310,21 @@ class CommentViewModel
             }
         }
 
+        /**
+         * 当前排序是否被服务端支持。
+         *
+         * 懒加载通道会返回 `cursor.support_mode`。若「综合」（mode=1）不在支持列表里，
+         * 说明该评论区不提供混合排序，需要回退到「热门」（mode=3）。
+         *
+         * @param sort 目标排序
+         * @return true 表示可以直接请求
+         */
+        internal fun isSortSupported(sort: CommentSort): Boolean {
+            val supported = _uiState.value.commentLists[sort]?.supportedModes.orEmpty()
+            // 空表示服务端没给（或尚未加载），此时不做限制
+            return supported.isEmpty() || sort.cursorMode in supported
+        }
+
         /** 加载当前排序的下一页主评论。 */
         fun loadMoreComments() {
             val state = _uiState.value
@@ -295,17 +343,27 @@ class CommentViewModel
                     try {
                         val page =
                             withTimeout(COMMENT_LOAD_TIMEOUT_MS) {
-                                commentRepository.getComments(
-                                    aid = aid,
-                                    sort = sort.apiValue,
-                                    page = nextPage,
-                                    preferApiType = ApiType.Web,
-                                )
+                                if (commentList.useCursor) {
+                                    commentRepository.getCommentsByCursor(
+                                        aid = aid,
+                                        mode = sort.cursorMode,
+                                        paginationOffset = commentList.paginationOffset,
+                                    )
+                                } else {
+                                    commentRepository.getComments(
+                                        aid = aid,
+                                        sort = sort.apiValue,
+                                        page = nextPage,
+                                        preferApiType = ApiType.Web,
+                                    )
+                                }
                             }
                         if (!isCommentListCurrent(sort, aid, generation)) return@launch
                         val current = _uiState.value.commentLists[sort] ?: return@launch
+                        // 置顶评论会与列表重复，追加时一并排除，避免同一条评论出现两次
                         val existing = current.comments.mapTo(HashSet()) { it.rpid }
-                        val appended = page.comments.filter { it.rpid !in existing }
+                        val appended =
+                            page.comments.filter { it.rpid !in existing && it.rpid !in current.topRpidSet }
                         updateCommentList(sort) {
                             it.copy(
                                 comments = it.comments + appended,
@@ -316,6 +374,8 @@ class CommentViewModel
                                 loadingMore = false,
                                 loadMoreError = false,
                                 replyPreviews = it.replyPreviews + page.replyPreviews,
+                                // 游标通道每页都会带回新的 offset，必须持续更新，否则翻页原地打转
+                                paginationOffset = page.paginationOffset ?: it.paginationOffset,
                             )
                         }
                     } catch (error: Throwable) {
@@ -545,6 +605,19 @@ class CommentViewModel
             }
         }
 
+        /**
+         * 加载指定排序的第一页评论。
+         *
+         * 优先走懒加载通道（带热评/置顶/游标翻页），失败时**自动降级**到翻页通道，
+         * 并把降级状态写进 [CommentListState.useCursor]，本次弹窗内不再重试游标通道。
+         *
+         * 降级是必要的：懒加载通道要求 WBI 签名与登录态，未登录、风控拦截、
+         * 接口临时不可用时都会失败；此时若直接报错，用户会看到空白评论区，
+         * 而翻页通道在没有登录态时仍能返回评论。
+         *
+         * @param sort 排序方式
+         * @param aid 视频 AV 号
+         */
         private fun startCommentsLoad(
             sort: CommentSort,
             aid: Long,
@@ -555,40 +628,96 @@ class CommentViewModel
             commentJobs[sort] =
                 viewModelScope.launch {
                     updateCommentList(sort) { it.copy(initialLoading = true, initialError = false) }
-                    try {
-                        val page =
+                    val existing = _uiState.value.commentLists[sort]
+                    val page =
+                        try {
                             withTimeout(COMMENT_LOAD_TIMEOUT_MS) {
-                                commentRepository.getComments(
-                                    aid = aid,
-                                    sort = sort.apiValue,
-                                    page = 1,
-                                    preferApiType = ApiType.Web,
-                                )
+                                if (existing?.useCursor != false) {
+                                    loadFirstPageByCursor(sort, aid)
+                                } else {
+                                    loadFirstPageByPage(sort, aid)
+                                }
                             }
-                        if (!isCommentListCurrent(sort, aid, generation)) return@launch
-                        updateCommentList(sort) {
-                            it.copy(
-                                comments = page.comments.distinctBy { comment -> comment.rpid },
-                                page = page.page,
-                                total = page.total,
-                                hasMore = page.hasMore,
-                                loaded = true,
-                                initialLoading = false,
-                                initialError = false,
-                                loadingMore = false,
-                                loadMoreError = false,
-                                replyPreviews = it.replyPreviews + page.replyPreviews,
-                            )
+                        } catch (error: Throwable) {
+                            rethrowCancellation(error)
+                            // 已经降级过的通道不再重复尝试，直接把错误抛给 UI
+                            if (existing?.useCursor == false) {
+                                logger.error(error) {
+                                    "Failed to load comments (fallback channel): aid=$aid, sort=${sort.name}"
+                                }
+                                if (isCommentListCurrent(sort, aid, generation)) {
+                                    updateCommentList(sort) {
+                                        it.copy(initialLoading = false, initialError = true)
+                                    }
+                                }
+                                return@launch
+                            }
+                            // 游标通道失败 → 标记降级并立即用翻页通道重试
+                            logger.error(error) {
+                                "Cursor channel failed, falling back to paging: aid=$aid, sort=${sort.name}"
+                            }
+                            updateCommentList(sort) { it.copy(useCursor = false) }
+                            try {
+                                withTimeout(COMMENT_LOAD_TIMEOUT_MS) {
+                                    loadFirstPageByPage(sort, aid)
+                                }
+                            } catch (fallbackError: Throwable) {
+                                rethrowCancellation(fallbackError)
+                                logger.error(fallbackError) {
+                                    "Fallback channel also failed: aid=$aid, sort=${sort.name}"
+                                }
+                                if (isCommentListCurrent(sort, aid, generation)) {
+                                    updateCommentList(sort) {
+                                        it.copy(initialLoading = false, initialError = true)
+                                    }
+                                }
+                                return@launch
+                            }
                         }
-                    } catch (error: Throwable) {
-                        rethrowCancellation(error)
-                        logger.error(error) { "Failed to load comments: aid=$aid, sort=${sort.name}" }
-                        if (isCommentListCurrent(sort, aid, generation)) {
-                            updateCommentList(sort) { it.copy(initialLoading = false, initialError = true) }
-                        }
+
+                    if (!isCommentListCurrent(sort, aid, generation)) return@launch
+                    updateCommentList(sort) {
+                        it.copy(
+                            comments = page.comments.distinctBy { comment -> comment.rpid },
+                            page = page.page,
+                            total = page.total,
+                            hasMore = page.hasMore,
+                            loaded = true,
+                            initialLoading = false,
+                            initialError = false,
+                            loadingMore = false,
+                            loadMoreError = false,
+                            replyPreviews = it.replyPreviews + page.replyPreviews,
+                            hots = page.hots,
+                            topReplies = page.topReplies,
+                            paginationOffset = page.paginationOffset,
+                            // 记录服务端支持的排序方式，供 UI 判断「综合」是否可用
+                            supportedModes = page.supportedModes,
+                        )
                     }
                 }
         }
+
+        /** 走懒加载通道拉第一页。 */
+        private suspend fun loadFirstPageByCursor(
+            sort: CommentSort,
+            aid: Long,
+        ) = commentRepository.getCommentsByCursor(
+            aid = aid,
+            mode = sort.cursorMode,
+            paginationOffset = null,
+        )
+
+        /** 走翻页通道拉第一页。 */
+        private suspend fun loadFirstPageByPage(
+            sort: CommentSort,
+            aid: Long,
+        ) = commentRepository.getComments(
+            aid = aid,
+            sort = sort.apiValue,
+            page = 1,
+            preferApiType = ApiType.Web,
+        )
 
         private fun startRepliesLoad(
             sort: CommentSort,

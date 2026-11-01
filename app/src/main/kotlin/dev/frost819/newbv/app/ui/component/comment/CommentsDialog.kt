@@ -123,6 +123,35 @@ private sealed interface CommentRow {
         override val key: String get() = "comment:${comment.rpid}"
     }
 
+    /**
+     * 置顶评论行。
+     *
+     * 与 [MainComment] 使用不同 key，因为同一条评论可能同时出现在置顶区与普通列表，
+     * 但 UI 上只展示置顶那次（普通列表在构建行时已按 rpid 去重）。
+     */
+    data class TopComment(
+        val comment: Comment,
+    ) : CommentRow {
+        override val key: String get() = "top:${comment.rpid}"
+    }
+
+    /** 热评区标题行。 */
+    data object HotHeader : CommentRow {
+        override val key: String get() = "hots-header"
+    }
+
+    /** 热评条目行。 */
+    data class HotComment(
+        val comment: Comment,
+    ) : CommentRow {
+        override val key: String get() = "hot:${comment.rpid}"
+    }
+
+    /** 置顶区标题行。 */
+    data object TopHeader : CommentRow {
+        override val key: String get() = "top-header"
+    }
+
     /** 楼中楼回复行（收起态预览与展开后的分页回复共用同一套渲染）。 */
     data class Reply(
         val rootRpid: Long,
@@ -154,7 +183,27 @@ private sealed interface CommentRow {
  */
 private fun buildCommentRows(commentList: CommentListState): List<CommentRow> =
     buildList {
-        commentList.comments.forEach { root ->
+        // 置顶区：懒加载通道返回的 top（管理员 → UP 主 → 投票），始终排在最前
+        if (commentList.topReplies.isNotEmpty()) {
+            add(CommentRow.TopHeader)
+            commentList.topReplies.forEach { add(CommentRow.TopComment(it)) }
+        }
+
+        // 热评区：独立于翻页列表的一组高热评论，同样排在最前
+        val topRpids = commentList.topRpidSet
+        val hots = commentList.hots.filter { it.rpid !in topRpids }
+        if (hots.isNotEmpty()) {
+            add(CommentRow.HotHeader)
+            hots.forEach { add(CommentRow.HotComment(it)) }
+        }
+
+        // 普通列表需同时排除置顶与热评，否则同一评论会出现两三次。
+        // 热评条目本身带 rpid，去重后不丢失任何信息。
+        val deduped =
+            commentList.comments
+                .filter { it.rpid !in topRpids }
+                .filter { comment -> hots.none { it.rpid == comment.rpid } }
+        deduped.forEach { root ->
             add(CommentRow.MainComment(root))
             val replyList = commentList.replyList(root.rpid)
             if (replyList?.expanded == true) {
@@ -311,9 +360,17 @@ private fun CommentsContent(
 ) {
     // 热门与最新各自维护滚动状态：共用一个 LazyListState 时，Compose 会按首个可见 item 的
     // key 在新列表中重新定位，导致切换排序后上一条排序的评论被锚定在顶部
+    // 每种排序独立维护滚动位置，切换排序后不会把上一种排序的锚点带过来。
+    // 必须在 composition 中逐个调用 rememberLazyListState（Composable 不能放在 remember 的 lambda 里）
     val hotListState = rememberLazyListState()
+    val mixedListState = rememberLazyListState()
     val latestListState = rememberLazyListState()
-    val listState = if (state.sort == CommentSort.Hot) hotListState else latestListState
+    val listState =
+        when (state.sort) {
+            CommentSort.Hot -> hotListState
+            CommentSort.Mixed -> mixedListState
+            CommentSort.Latest -> latestListState
+        }
     val rows = remember(state.commentList) { buildCommentRows(state.commentList) }
 
     // 评论文本展开状态：纯 UI 态，按 rpid 记录，切换排序/分页重排时保持
@@ -355,8 +412,13 @@ private fun CommentsContent(
             modifier = Modifier.padding(vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            SortButton(CommentSort.Hot, state.sort, onSortChange)
-            SortButton(CommentSort.Latest, state.sort, onSortChange)
+            // 服务端通过 cursor.support_mode 声明可用排序；未声明时（空）全部展示
+            val supportedModes = state.commentList.supportedModes
+            CommentSort.entries
+                .filter { supportedModes.isEmpty() || it.cursorMode in supportedModes }
+                .forEach { sort ->
+                    SortButton(sort, state.sort, onSortChange)
+                }
         }
 
         when {
@@ -396,6 +458,48 @@ private fun CommentsContent(
                 ) {
                     items(rows, key = { it.key }) { row ->
                         when (row) {
+                            CommentRow.TopHeader -> SectionHeader("置顶")
+                            CommentRow.HotHeader -> SectionHeader("热门评论")
+                            is CommentRow.TopComment -> {
+                                val comment = row.comment
+                                val rpid = comment.rpid
+                                val replyList = state.commentList.replyList(rpid)
+                                CommentCard(
+                                    comment = comment,
+                                    compact = mode == CommentDialogMode.Player,
+                                    isLiking = rpid in state.likingIds,
+                                    showReplyButton = comment.replyCount > 0,
+                                    isExpanded = replyList?.expanded == true,
+                                    isLoadingReplies = replyList?.initialLoading == true,
+                                    previewReplyCount = state.commentList.replyPreview(rpid).size,
+                                    isTextExpanded = expandedCommentIds[rpid] == true,
+                                    onToggleTextExpand = { toggleCommentText(rpid) },
+                                    onToggleReplies = { onToggleReplies(rpid) },
+                                    onToggleLike = { onToggleLike(rpid) },
+                                    onReply = { onReply(comment) },
+                                    onImageClick = onImageClick,
+                                )
+                            }
+                            is CommentRow.HotComment -> {
+                                val comment = row.comment
+                                val rpid = comment.rpid
+                                val replyList = state.commentList.replyList(rpid)
+                                CommentCard(
+                                    comment = comment,
+                                    compact = mode == CommentDialogMode.Player,
+                                    isLiking = rpid in state.likingIds,
+                                    showReplyButton = comment.replyCount > 0,
+                                    isExpanded = replyList?.expanded == true,
+                                    isLoadingReplies = replyList?.initialLoading == true,
+                                    previewReplyCount = state.commentList.replyPreview(rpid).size,
+                                    isTextExpanded = expandedCommentIds[rpid] == true,
+                                    onToggleTextExpand = { toggleCommentText(rpid) },
+                                    onToggleReplies = { onToggleReplies(rpid) },
+                                    onToggleLike = { onToggleLike(rpid) },
+                                    onReply = { onReply(comment) },
+                                    onImageClick = onImageClick,
+                                )
+                            }
                             is CommentRow.MainComment -> {
                                 val comment = row.comment
                                 val rpid = comment.rpid
@@ -757,6 +861,22 @@ private fun SortButton(
     ) {
         Text(sort.displayName, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
     }
+}
+
+/**
+ * 评论区小节标题（「置顶」「热门评论」）。
+ *
+ * @param text 标题文字
+ */
+@Composable
+private fun SectionHeader(text: String) {
+    Text(
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        fontWeight = FontWeight.Bold,
+    )
 }
 
 @Composable

@@ -126,12 +126,22 @@ data class Comment(
  * 评论分页结果。
  *
  * @property comments 本页评论
- * @property page 当前页码（Web 通道使用，从 1 开始）
+ * @property page 当前页码（Web 翻页通道使用，从 1 开始；游标通道不依赖页码，恒为 1）
  * @property total 服务端返回的评论总数，未知时为 0
  * @property hasMore 是否还有下一页
- * @property nextCursor App gRPC 通道的下一页游标，Web 通道为 null
+ * @property nextCursor App gRPC 通道的下一页游标（数字），Web 通道为 null
+ * @property paginationOffset Web 懒加载通道的下一页偏移，形如
+ *   `{"type":3,"direction":1,"Data":{"cursor":71859}}`。
+ *   该值必须**原样回传**给下一次请求，不要在本地解析后重组——服务端按字符串匹配，
+ *   自行序列化出的字段顺序差异可能导致翻页失败。gRPC 与翻页通道均为 null。
  * @property replyPreviews 根评论 rpid -> 接口自带的楼中楼预览（仅一层，通常 3 条），
  *   用于收起态直接展示，避免为预览额外请求
+ * @property hots 热评列表（懒加载通道的 `data.hots`，翻页/游标之外单独一组）。
+ *   置顶评论不会重复出现在这里。
+ * @property topReplies 置顶评论，按「管理员置顶 → UP 主置顶」顺序。
+ *   这些条目仍会出现在 [comments] 里，UI 需按 rpid 去重后单独置顶展示。
+ * @property supportedModes 服务端声明的可用排序方式（懒加载通道的 `cursor.support_mode`）。
+ *   为空表示未知，此时不做过滤。
  */
 @Serializable
 data class CommentPage(
@@ -140,7 +150,11 @@ data class CommentPage(
     val total: Int,
     val hasMore: Boolean,
     val nextCursor: Long? = null,
+    val paginationOffset: String? = null,
     val replyPreviews: Map<Long, List<Comment>> = emptyMap(),
+    val hots: List<Comment> = emptyList(),
+    val topReplies: List<Comment> = emptyList(),
+    val supportedModes: List<Int> = emptyList(),
 )
 
 private fun JsonObject.string(name: String): String? = this[name]?.jsonPrimitive?.contentOrNull

@@ -947,6 +947,42 @@ object BiliHttpApi {
             }.body()
 
     /**
+     * 获取视频评论主列表（懒加载通道，带游标翻页）。
+     *
+     * 对应文档：docs/bilibili-API-collect-master/docs/comment/list.md（「获取评论区明细_懒加载」一节）
+     * 鉴权：WBI 签名（路径含 `wbi`，由 encApiSign 拦截器自动加 `w_rid`/`wts`）+ Cookie 可选
+     *
+     * 与翻页通道 `/x/v2/reply` 的差异：本接口额外返回热评（`data.hots`）、
+     * 置顶评论（`data.top`）与可用排序方式（`cursor.support_mode`），
+     * 并且用不透明字符串游标翻页而不是页码。
+     *
+     * @param aid 视频 AV 号
+     * @param mode 排序方式：0|3 仅热度 / 1 热度+时间 / 2 仅时间
+     * @param paginationOffset 上一页响应里的 `cursor.pagination_reply.next_offset`，
+     *   第一页传 null。该字符串必须原样回传，不要解析后重组
+     * @param accessKey App access_key，为空时用 Cookie
+     */
+    suspend fun getVideoCommentsByCursor(
+        aid: Long,
+        mode: Int = 3,
+        paginationOffset: String? = null,
+        accessKey: String? = null,
+    ): BiliResponse<JsonObject> =
+        client
+            .get("/x/v2/reply/wbi/main") {
+                parameter("type", 1)
+                parameter("oid", aid)
+                parameter("mode", mode)
+                parameter("plat", 1)
+                parameter("web_location", "1315875")
+                // 第一页不传 pagination_str；后续页原样回传服务端给的 offset JSON
+                paginationOffset
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { parameter("pagination_str", "{\"offset\":${it}}") }
+                accessKey?.takeIf { it.isNotBlank() }?.let { parameter("access_key", it) }
+            }.body()
+
+    /**
      * 获取视频评论的楼中楼。
      *
      * @param aid 视频 AV 号

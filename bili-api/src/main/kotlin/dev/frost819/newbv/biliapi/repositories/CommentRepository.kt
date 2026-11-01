@@ -12,6 +12,9 @@ import dev.frost819.newbv.biliapi.http.BiliHttpApi
 import dev.frost819.newbv.biliapi.http.entity.comment.CommentAddResult
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * 视频评论仓库。
@@ -89,6 +92,85 @@ class CommentRepository(
                 )
             }
         }
+
+    /**
+     * 获取主评论分页（懒加载通道，游标翻页）。
+     *
+     * 对应文档：docs/bilibili-API-collect-master/docs/comment/list.md（「获取评论区明细_懒加载」一节）
+     *
+     * 相比 [getComments] 的翻页通道，本方法额外解析热评、置顶评论与可用排序方式。
+     * 调用方（ViewModel）在本方法抛异常时应自行降级到 [getComments]，本方法不做回退，
+     * 以便调用方能区分「通道失败」与「确实没有评论」。
+     *
+     * @param aid 视频 AV 号
+     * @param mode 排序方式：0|3 仅热度 / 1 热度+时间 / 2 仅时间
+     * @param paginationOffset 上一页的 `next_offset` 原样回传，第一页传 null
+     * @throws IllegalStateException 当 B 站返回失败状态时抛出
+     */
+    suspend fun getCommentsByCursor(
+        aid: Long,
+        mode: Int = 3,
+        paginationOffset: String? = null,
+    ): CommentPage {
+        val data =
+            BiliHttpApi
+                .getVideoCommentsByCursor(aid = aid, mode = mode, paginationOffset = paginationOffset)
+                .getResponseData()
+        val cursor = data["cursor"] as? JsonObject
+        val upperMid = (data["upper"] as? JsonObject)?.longValue("mid") ?: 0L
+        val repliesJson = data["replies"] as? JsonArray
+        val comments =
+            repliesJson
+                ?.mapNotNull { it as? JsonObject }
+                ?.map { Comment.fromJson(it, oid = aid, defaultType = 1, upperMid = upperMid) }
+                .orEmpty()
+                .filter { it.rpid > 0L }
+                .distinctBy { it.rpid }
+
+        // 热评与置顶都是独立数组，条目结构与 replies 相同
+        fun parseList(key: String): List<Comment> =
+            (data[key] as? JsonArray)
+                ?.mapNotNull { it as? JsonObject }
+                ?.map { Comment.fromJson(it, oid = aid, defaultType = 1, upperMid = upperMid) }
+                .orEmpty()
+                .filter { it.rpid > 0L }
+                .distinctBy { it.rpid }
+
+        // 置顶：data.top.{admin,upper,vote}，按「管理员 → UP 主 → 投票」顺序拼
+        val topObject = data["top"] as? JsonObject
+        val topReplies =
+            listOf("admin", "upper", "vote")
+                .mapNotNull { topObject?.get(it) as? JsonObject }
+                .map { Comment.fromJson(it, oid = aid, defaultType = 1, upperMid = upperMid) }
+                .filter { it.rpid > 0L }
+                .distinctBy { it.rpid }
+
+        val supportedModes =
+            (cursor?.get("support_mode") as? JsonArray)
+                ?.mapNotNull { it.jsonPrimitive.intOrNull }
+                .orEmpty()
+
+        val total = cursor?.longValue("all_count")?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: 0
+        val isEnd = cursor?.booleanValue("is_end") ?: true
+        val nextOffset =
+            ((cursor?.get("pagination_reply") as? JsonObject)?.get("next_offset"))
+                ?.jsonPrimitive
+                ?.contentOrNull
+                ?.takeIf { it.isNotBlank() && it != "null" }
+
+        return CommentPage(
+            comments = comments,
+            // 游标通道没有页码概念，固定为 1，避免 UI 依赖页码时出现 0
+            page = 1,
+            total = total,
+            // 有下一页偏移且服务端未标记结束才继续翻页
+            hasMore = !isEnd && nextOffset != null,
+            paginationOffset = nextOffset,
+            hots = parseList("hots"),
+            topReplies = topReplies,
+            supportedModes = supportedModes,
+        )
+    }
 
     /**
      * 获取根评论下的楼中楼分页。
@@ -342,3 +424,10 @@ class CommentRepository(
 }
 
 private fun JsonObject.longValue(name: String): Long? = this[name]?.toString()?.trim('"')?.toLongOrNull()
+
+private fun JsonObject.booleanValue(name: String): Boolean? =
+    when (this[name]?.jsonPrimitive?.contentOrNull) {
+        "true" -> true
+        "false" -> false
+        else -> null
+    }
