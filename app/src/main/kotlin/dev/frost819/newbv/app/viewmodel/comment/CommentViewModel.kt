@@ -311,16 +311,21 @@ class CommentViewModel
         }
 
         /**
-         * 当前排序是否被服务端支持。
+         * 指定排序是否被服务端支持。
          *
-         * 懒加载通道会返回 `cursor.support_mode`。若「综合」（mode=1）不在支持列表里，
-         * 说明该评论区不提供混合排序，需要回退到「热门」（mode=3）。
+         * `cursor.support_mode` 描述的是**整个评论区**支持哪些排序，与具体某个排序的
+         * 缓存无关。因此这里从任意一个已加载过的排序里取该值，而不是按 [sort] 去查缓存——
+         * 目标排序尚未加载时缓存必然为空，那样会误判为「支持」。
          *
          * @param sort 目标排序
          * @return true 表示可以直接请求
          */
         internal fun isSortSupported(sort: CommentSort): Boolean {
-            val supported = _uiState.value.commentLists[sort]?.supportedModes.orEmpty()
+            val supported =
+                _uiState.value.commentLists.values
+                    .firstOrNull { it.supportedModes.isNotEmpty() }
+                    ?.supportedModes
+                    .orEmpty()
             // 空表示服务端没给（或尚未加载），此时不做限制
             return supported.isEmpty() || sort.cursorMode in supported
         }
@@ -676,9 +681,17 @@ class CommentViewModel
                         }
 
                     if (!isCommentListCurrent(sort, aid, generation)) return@launch
+                    // 置顶评论由 page.topReplies 单独承载，普通列表里必须剔除，
+                    // 否则 UI 上同一条评论会出现两次（置顶区 + 普通区）。
+                    // 首页与后续页都要过滤，只过滤追加页会漏掉首页内的重复项。
+                    val topRpids = page.topReplies.mapTo(HashSet()) { it.rpid }
+                    val pageComments =
+                        page.comments
+                            .distinctBy { comment -> comment.rpid }
+                            .filter { it.rpid !in topRpids }
                     updateCommentList(sort) {
                         it.copy(
-                            comments = page.comments.distinctBy { comment -> comment.rpid },
+                            comments = pageComments,
                             page = page.page,
                             total = page.total,
                             hasMore = page.hasMore,

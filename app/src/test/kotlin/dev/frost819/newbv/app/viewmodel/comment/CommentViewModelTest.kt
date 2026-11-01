@@ -661,7 +661,7 @@ class CommentViewModelTest {
         }
 
     @Test
-    fun `top replies are excluded from appended pages`() =
+    fun `top replies are excluded from both first and appended pages`() =
         runTest(dispatcher) {
             val pinned = comment(rpid = 1L)
             coEvery { repository.getCommentsByCursor(100L, any(), any()) } returns
