@@ -37,9 +37,32 @@ class FocusSaver(
 
     /**
      * 获取指定 key 的 [FocusRequester]。
+     *
      * 每个 key 独立一个 requester，在组合恢复后仍有效。
+     *
+     * 用 `getOrPut` 而非每次都 new：首页网格一次会组合几十张卡片，
+     * 每个都在 composition 阶段调用本方法。若每次都创建新实例，
+     * 切换 Tab 时会产生大量短命对象并拖慢首帧。
      */
     fun focusRequesterFor(key: String): FocusRequester = requesters.getOrPut(key) { FocusRequester() }
+
+    /**
+     * 丢弃不再使用的 key，避免长时间浏览后 map 无限增长。
+     *
+     * 网格切换 Tab 时索引 key（如 `rcmd_0`）会复用，
+     * 但不同前缀（`rcmd_` / `pop_` / `dyn_`）会累积。
+     */
+    fun pruneKeys(keepPrefixes: Set<String>) {
+        if (requesters.size < PRUNE_THRESHOLD) return
+        requesters.keys
+            .filterNot { key -> keepPrefixes.any { key.startsWith(it) } }
+            .forEach { requesters.remove(it) }
+    }
+
+    private companion object {
+        /** map 条目超过该阈值才执行裁剪，避免频繁全量扫描。 */
+        const val PRUNE_THRESHOLD = 512
+    }
 
     /**
      * 保存当前聚焦的 key。

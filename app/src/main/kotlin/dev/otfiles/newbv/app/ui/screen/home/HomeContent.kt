@@ -29,6 +29,8 @@ import androidx.navigation.NavController
 import dev.otfiles.newbv.app.ui.component.FocusSaver
 import dev.otfiles.newbv.app.ui.component.HomeTabItem
 import dev.otfiles.newbv.app.ui.component.TopNav
+import dev.otfiles.newbv.app.ui.component.enterTransitionSpec
+import dev.otfiles.newbv.app.ui.component.exitTransitionSpec
 import dev.otfiles.newbv.app.viewmodel.home.HomeViewModel
 import dev.otfiles.newbv.data.datastore.HomeTopNavItem
 import dev.otfiles.newbv.data.datastore.Prefs
@@ -77,6 +79,9 @@ fun HomeContent(
                 onSelectedChanged = { nav ->
                     val tab = (nav as HomeTabItem).item
                     selectedTab = tab
+                    // 切换 Tab 后旧 Tab 的卡片 key 不再需要。
+                    // 只保留当前 Tab 的前缀：三个前缀全保留等于不裁剪。
+                    focusSaver.pruneKeys(setOf(tab.focusKeyPrefix()))
                     if (tab == HomeTopNavItem.Dynamics && uiState.dynamicItems.isEmpty()) {
                         viewModel.loadDynamic()
                     }
@@ -105,16 +110,35 @@ fun HomeContent(
             AnimatedContent(
                 targetState = selectedTab,
                 label = "home-animated-content",
+                // contentKey 让 Compose 用「Tab 枚举」而不是整个 state 对象
+                // 来决定是否复用内容槽位。缺省时每次重组都可能被判为新内容，
+                // 触发不必要的进入动画与重建。
+                contentKey = { it },
+                // 两页都是 fillMaxSize，尺寸动画没有任何视觉收益，
+                // 却让每一帧都多做一次布局测量。关掉可以显著减少切换期间的主线程负载。
+                sizeTransform = null,
                 transitionSpec = {
                     val coefficient = 10
+                    // 显式指定短时长的 spec：默认 300ms 在 TV 上明显拖沓，
+                    // 按键后要等三分之一秒画面才开始动
                     if (reorderedItems.indexOf(HomeTabItem(targetState)) <
                         reorderedItems.indexOf(HomeTabItem(initialState))
                     ) {
-                        fadeIn() + slideInHorizontally { -it / coefficient } togetherWith
-                            fadeOut() + slideOutHorizontally { it / coefficient }
+                        (
+                            fadeIn(enterTransitionSpec()) +
+                                slideInHorizontally(enterTransitionSpec()) { -it / coefficient }
+                        ) togetherWith (
+                            fadeOut(exitTransitionSpec()) +
+                                slideOutHorizontally(exitTransitionSpec()) { it / coefficient }
+                        )
                     } else {
-                        fadeIn() + slideInHorizontally { it / coefficient } togetherWith
-                            fadeOut() + slideOutHorizontally { -it / coefficient }
+                        (
+                            fadeIn(enterTransitionSpec()) +
+                                slideInHorizontally(enterTransitionSpec()) { it / coefficient }
+                        ) togetherWith (
+                            fadeOut(exitTransitionSpec()) +
+                                slideOutHorizontally(exitTransitionSpec()) { -it / coefficient }
+                        )
                     }
                 },
             ) { screen ->
@@ -142,3 +166,17 @@ fun HomeContent(
         }
     }
 }
+
+/**
+ * 各 Tab 卡片焦点 key 的前缀。
+ *
+ * 与 [RecommendScreen] / [PopularScreen] / [DynamicsScreen] 里
+ * `focusSaverItem(focusSaver, "...")` 使用的字符串必须完全一致，
+ * 否则裁剪时会误删正在使用的 key，导致返回时焦点恢复失败。
+ */
+private fun HomeTopNavItem.focusKeyPrefix(): String =
+    when (this) {
+        HomeTopNavItem.Recommend -> "rcmd_"
+        HomeTopNavItem.Popular -> "popular_"
+        HomeTopNavItem.Dynamics -> "dynamics_"
+    }

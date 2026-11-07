@@ -26,6 +26,8 @@ import androidx.compose.ui.input.key.type
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import dev.otfiles.newbv.app.ui.component.FocusSaver
+import dev.otfiles.newbv.app.ui.component.enterTransitionSpec
+import dev.otfiles.newbv.app.ui.component.exitTransitionSpec
 import dev.otfiles.newbv.app.ui.component.PersonalTabItem
 import dev.otfiles.newbv.app.ui.component.TopNav
 import dev.otfiles.newbv.app.viewmodel.personal.PersonalViewModel
@@ -100,16 +102,31 @@ fun PersonalContent(
             AnimatedContent(
                 targetState = selectedTab,
                 label = "personal-animated-content",
+                // 两页都是 fillMaxSize，尺寸动画没有任何视觉收益，
+                // 却让每一帧都多做一次布局测量。关掉可以显著减少切换期间的主线程负载。
+                sizeTransform = null,
+                contentKey = { it },
                 transitionSpec = {
                     val coefficient = 10
+                    // 与首页一致：显式短时长，避免默认 300ms 在 TV 上的拖沓感
                     if (reorderedItems.indexOf(PersonalTabItem(targetState)) <
                         reorderedItems.indexOf(PersonalTabItem(initialState))
                     ) {
-                        fadeIn() + slideInHorizontally { -it / coefficient } togetherWith
-                            fadeOut() + slideOutHorizontally { it / coefficient }
+                        (
+                            fadeIn(enterTransitionSpec()) +
+                                slideInHorizontally(enterTransitionSpec()) { -it / coefficient }
+                        ) togetherWith (
+                            fadeOut(exitTransitionSpec()) +
+                                slideOutHorizontally(exitTransitionSpec()) { it / coefficient }
+                        )
                     } else {
-                        fadeIn() + slideInHorizontally { it / coefficient } togetherWith
-                            fadeOut() + slideOutHorizontally { -it / coefficient }
+                        (
+                            fadeIn(enterTransitionSpec()) +
+                                slideInHorizontally(enterTransitionSpec()) { it / coefficient }
+                        ) togetherWith (
+                            fadeOut(exitTransitionSpec()) +
+                                slideOutHorizontally(exitTransitionSpec()) { -it / coefficient }
+                        )
                     }
                 },
             ) { screen ->

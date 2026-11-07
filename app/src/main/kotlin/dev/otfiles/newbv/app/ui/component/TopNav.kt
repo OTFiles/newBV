@@ -27,6 +27,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
@@ -60,6 +65,11 @@ fun TopNav(
     val focusRequester = remember { FocusRequester() }
 
     var selectedTabIndex by remember { mutableIntStateOf(selectedIndex) }
+    // 每个 Tab 一个 FocusRequester，供按键预切时主动移动焦点
+    val tabFocusRequesters =
+        remember(items.size) {
+            List(items.size) { FocusRequester() }
+        }
 
     LaunchedEffect(selectedIndex) {
         selectedTabIndex = selectedIndex
@@ -73,7 +83,33 @@ fun TopNav(
         modifier =
             modifier
                 .fillMaxWidth()
-                .padding(12.dp, verticalPadding),
+                .padding(12.dp, verticalPadding)
+                // 在 KeyDown 阶段就把内容切过去，而不是等焦点移动完成后的 onFocus。
+                // onFocus 要等焦点系统完成一次完整遍历才触发，在低端电视上这一帧
+                // 就是肉眼可见的「按了没反应」。这里提前一个事件相位切换，
+                // 让按键与画面变化发生在同一帧。
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    val delta =
+                        when (event.key) {
+                            Key.DirectionLeft -> -1
+                            Key.DirectionRight -> 1
+                            else -> return@onPreviewKeyEvent false
+                        }
+                    val target = selectedTabIndex + delta
+                    // 越界时放行，交给焦点系统去做跨区域跳转（如跳到左侧栏）
+                    if (target !in items.indices) return@onPreviewKeyEvent false
+
+                    // 同步三件事：内容状态、选中索引、真实焦点。
+                    // 只改前三者不改焦点的话，视觉高亮会和实际焦点位置不一致，
+                    // 再按方向键就会从错误的位置继续跳。
+                    selectedTabIndex = target
+                    onSelectedChanged(items[target])
+                    tabFocusRequesters[target]?.let { runCatching { it.requestFocus() } }
+                    // 消费事件：焦点已由我们手动移动，避免同一次按键
+                    // 又被 TabRow 的默认焦点搜索再移动一次，导致跳两格
+                    true
+                },
         horizontalArrangement = Arrangement.Center,
     ) {
         TabRow(
@@ -85,12 +121,23 @@ fun TopNav(
         ) {
             items.forEachIndexed { index, tab ->
                 NavItemTab(
-                    modifier = if (index == 0) Modifier.focusRequester(focusRequester) else Modifier,
+                    modifier =
+                        Modifier
+                            .then(
+                                if (index == 0) {
+                                    Modifier.focusRequester(focusRequester)
+                                } else {
+                                    Modifier
+                                },
+                            ).focusRequester(tabFocusRequesters[index]),
                     topNavItem = tab,
                     selected = index == selectedTabIndex,
                     onFocus = {
-                        selectedTabIndex = index
-                        onSelectedChanged(tab)
+                        // 焦点被其它方式移动（如鼠标、初始聚焦）时仍然同步
+                        if (selectedTabIndex != index) {
+                            selectedTabIndex = index
+                            onSelectedChanged(tab)
+                        }
                     },
                     onClick = { onClick(tab) },
                 )
