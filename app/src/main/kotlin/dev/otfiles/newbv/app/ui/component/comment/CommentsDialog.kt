@@ -201,7 +201,7 @@ enum class CommentDialogMode {
  *
  * 主评论、楼中楼回复与各自分页 footer 使用稳定 key，便于分页追加时维持焦点与滚动位置。
  */
-private sealed interface CommentRow {
+internal sealed interface CommentRow {
     /** 稳定且全局唯一的 LazyColumn key。 */
     val key: String
 
@@ -270,12 +270,15 @@ private sealed interface CommentRow {
  *
  * @param commentList 当前排序的评论分页状态
  */
-private fun buildCommentRows(commentList: CommentListState): List<CommentRow> =
+internal fun buildCommentRows(commentList: CommentListState): List<CommentRow> =
     buildList {
         // 置顶区：懒加载通道返回的 top（管理员 → UP 主 → 投票），始终排在最前
         if (commentList.topReplies.isNotEmpty()) {
             add(CommentRow.TopHeader)
-            commentList.topReplies.forEach { add(CommentRow.TopComment(it)) }
+            commentList.topReplies.forEach { root ->
+                add(CommentRow.TopComment(root))
+                addRootReplies(commentList, root)
+            }
         }
 
         // 热评区：独立于翻页列表的一组高热评论，同样排在最前
@@ -283,7 +286,10 @@ private fun buildCommentRows(commentList: CommentListState): List<CommentRow> =
         val hots = commentList.hots.filter { it.rpid !in topRpids }
         if (hots.isNotEmpty()) {
             add(CommentRow.HotHeader)
-            hots.forEach { add(CommentRow.HotComment(it)) }
+            hots.forEach { root ->
+                add(CommentRow.HotComment(root))
+                addRootReplies(commentList, root)
+            }
         }
 
         // 普通列表需同时排除置顶与热评，否则同一评论会出现两三次。
@@ -294,27 +300,47 @@ private fun buildCommentRows(commentList: CommentListState): List<CommentRow> =
                 .filter { comment -> hots.none { it.rpid == comment.rpid } }
         deduped.forEach { root ->
             add(CommentRow.MainComment(root))
-            val replyList = commentList.replyList(root.rpid)
-            if (replyList?.expanded == true) {
-                replyList.replies.forEach { reply ->
-                    add(CommentRow.Reply(rootRpid = root.rpid, comment = reply))
-                }
-                val showFooter =
-                    replyList.initialLoading ||
-                        replyList.initialError ||
-                        replyList.loadingMore ||
-                        replyList.loadMoreError ||
-                        replyList.hasMore
-                if (showFooter) add(CommentRow.ReplyFooter(root.rpid))
-            } else if (root.replyCount > 0) {
-                // 收起态直接展示接口预览，避免为预览额外请求第一页
-                commentList.replyPreview(root.rpid).forEach { preview ->
-                    add(CommentRow.Reply(rootRpid = root.rpid, comment = preview))
-                }
-            }
+            addRootReplies(commentList, root, includePreview = true)
         }
         add(CommentRow.MainFooter)
     }
+
+/**
+ * 把某个根评论的楼中楼行追加到行列表。
+ *
+ * 置顶评论与热评同样可以展开楼中楼，但它们的展开状态存在同一个
+ * `replyLists[rootRpid]` 里。早期实现只在普通列表里展开，导致置顶/热评的
+ * 「N 条回复」按钮点了没有任何反应——行列表里根本没有对应的子行。
+ *
+ * @param commentList 当前分页状态
+ * @param root 根评论
+ * @param includePreview 是否在收起态展示接口自带的预览。
+ *   置顶/热评不展示预览：它们在列表顶部，展开后内容已经足够，再塞预览会让首屏过长。
+ */
+private fun MutableList<CommentRow>.addRootReplies(
+    commentList: CommentListState,
+    root: Comment,
+    includePreview: Boolean = false,
+) {
+    val replyList = commentList.replyList(root.rpid)
+    if (replyList?.expanded == true) {
+        replyList.replies.forEach { reply ->
+            add(CommentRow.Reply(rootRpid = root.rpid, comment = reply))
+        }
+        val showFooter =
+            replyList.initialLoading ||
+                replyList.initialError ||
+                replyList.loadingMore ||
+                replyList.loadMoreError ||
+                replyList.hasMore
+        if (showFooter) add(CommentRow.ReplyFooter(root.rpid))
+    } else if (includePreview && root.replyCount > 0) {
+        // 收起态直接展示接口预览，避免为预览额外请求第一页
+        commentList.replyPreview(root.rpid).forEach { preview ->
+            add(CommentRow.Reply(rootRpid = root.rpid, comment = preview))
+        }
+    }
+}
 
 /**
  * 视频评论弹窗。

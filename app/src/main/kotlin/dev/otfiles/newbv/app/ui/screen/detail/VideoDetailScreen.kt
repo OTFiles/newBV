@@ -469,13 +469,20 @@ private fun FavoriteFolderDialog(
     onDismiss: () -> Unit,
     onUpdate: (List<Long>) -> Unit,
 ) {
-    val selectedIds = remember { androidx.compose.runtime.mutableStateListOf<Long>() }
     val defaultFocusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(selectedFolderIds) {
-        selectedIds.clear()
-        selectedIds.addAll(selectedFolderIds)
-    }
+    // 用「弹窗这次出现时的初始值」初始化本地选中集，且只初始化一次。
+    //
+    // 原实现是 LaunchedEffect(selectedFolderIds)：用户点一下收藏夹 → 本地状态
+    // 立刻变化（高亮）→ 异步请求返回后 uiState 更新 → selectedFolderIds 变化 →
+    // 这个 effect 又把本地状态覆盖回服务端返回值，表现为「按了会动一下但马上恢复」。
+    //
+    // 改为 remember 初值 + mutableStateListOf：弹窗存活期间以本地状态为准，
+    // 每次点击即时生效并独立提交；关闭重开时才重新以服务端值为准。
+    val selectedIds =
+        remember {
+            androidx.compose.runtime.mutableStateListOf<Long>().apply { addAll(selectedFolderIds) }
+        }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -508,33 +515,40 @@ private fun FavoriteFolderDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    folders.forEachIndexed { index, folder ->
+                    folders.forEachIndexed { _, folder ->
                         val selected = selectedIds.contains(folder.id)
+                        // 点击逻辑只写一份：原先 onClick 与 touchClickable 各写一遍，
+                        // 触屏点击会触发两次切换（加了又删），表现为点不动
+                        val toggle: () -> Unit = {
+                            if (selectedIds.contains(folder.id)) {
+                                selectedIds.remove(folder.id)
+                            } else {
+                                selectedIds.add(folder.id)
+                            }
+                            onUpdate(selectedIds.toList())
+                        }
                         androidx.tv.material3.FilterChip(
                             selected = selected,
-                            onClick = {
-                                if (selectedIds.contains(folder.id)) {
-                                    selectedIds.remove(folder.id)
-                                } else {
-                                    selectedIds.add(folder.id)
-                                }
-                                onUpdate(selectedIds.toList())
-                            },
-                            modifier =
-                                Modifier.touchClickable(
-                                    onClick = {
-                                        if (selectedIds.contains(folder.id)) {
-                                            selectedIds.remove(folder.id)
-                                        } else {
-                                            selectedIds.add(folder.id)
-                                        }
-                                        onUpdate(selectedIds.toList())
-                                    },
+                            onClick = toggle,
+                            modifier = Modifier.touchClickable(onClick = toggle),
+                            // 选中态必须显式给容器色与文字色：
+                            // 默认 selectedContainerColor 是浅色系，深色主题下
+                            // 文字仍用 onSurface（浅色），叠在一起就看不清名字了
+                            colors =
+                                androidx.tv.material3.FilterChipDefaults.colors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                 ),
                         ) {
                             Text(
                                 text = folder.title,
                                 style = MaterialTheme.typography.labelMedium,
+                                color =
+                                    if (selected) {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    },
                             )
                         }
                     }
