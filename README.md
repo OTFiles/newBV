@@ -96,7 +96,7 @@ newBV 是基于 [BV](https://github.com/aaa1115910/bv) 重构的 [哔哩哔哩](
 2. 可选填版本前缀（默认 `0.0.0`），点击运行
 3. 构建完成后在运行详情页底部的 **Artifacts** 下载 `newBV-apk`
 
-产物为 **debug 签名**（`applicationIdSuffix=.debug`，包名 `dev.frost819.newbv.debug`），
+产物为 **debug 签名**（`applicationIdSuffix=.debug`，包名 `dev.otfiles.newbv.debug`），
 可与官方 release 版共存安装。首次构建约 10–15 分钟，之后有 Gradle 缓存会更快。
 
 ## 开发文档

@@ -1,0 +1,170 @@
+package dev.otfiles.newbv.biliapi.entity.comment
+
+import bilibili.main.community.reply.v1.ReplyInfo
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
+
+/**
+ * 视频评论数据。
+ *
+ * 评论和楼中楼使用同一个模型，通过 [parentRpid] 与 [rootRpid] 表示层级关系。
+ */
+@Serializable
+data class Comment(
+    val rpid: Long,
+    val oid: Long,
+    val type: Int,
+    val mid: Long,
+    val rootRpid: Long,
+    val parentRpid: Long,
+    val userName: String,
+    val avatar: String,
+    val level: Int,
+    val message: String,
+    val pictures: List<String>,
+    val ctime: Long,
+    val likeCount: Long,
+    val replyCount: Int,
+    val isLiked: Boolean,
+    val isUp: Boolean,
+) {
+    /** 从 B 站 Web/App HTTP 评论 JSON 转换为统一模型。 */
+    companion object {
+        /**
+         * 解析单条评论 JSON。
+         *
+         * @param json 评论条目 JSON
+         * @param oid 评论区对象 id（缺失时兜底）
+         * @param defaultType 评论区类型（缺失时兜底）
+         * @param upperMid 视频 UP 主 mid；评论作者 mid 与之相同才标记为「UP主」，
+         *   0 表示未知（此时不标记）
+         */
+        fun fromJson(
+            json: JsonObject,
+            oid: Long,
+            defaultType: Int = 1,
+            upperMid: Long = 0L,
+        ): Comment {
+            val member = json["member"] as? JsonObject
+            val content = json["content"] as? JsonObject
+            val control = json["reply_control"] as? JsonObject
+            val levelInfo = member?.get("level_info") as? JsonObject
+            val pictures =
+                (content?.get("pictures") as? kotlinx.serialization.json.JsonArray)
+                    ?.mapNotNull { picture ->
+                        (picture as? JsonObject)?.get("img_src")?.jsonPrimitive?.contentOrNull
+                    }.orEmpty()
+            val action =
+                control?.get("action")?.jsonPrimitive?.intOrNull
+                    ?: json["user_action"]?.jsonPrimitive?.intOrNull
+                    ?: 0
+            val mid = json.long("mid", member?.long("mid", 0L) ?: 0L)
+
+            return Comment(
+                rpid = json.long("rpid", json.long("id", 0L)),
+                oid = json.long("oid", oid),
+                type = json.int("type", defaultType),
+                mid = mid,
+                rootRpid = json.long("root", 0L),
+                parentRpid = json.long("parent", 0L),
+                userName = member?.string("uname") ?: "未知用户",
+                avatar = member?.string("avatar") ?: member?.string("face") ?: "",
+                level = levelInfo?.int("current_level", 0) ?: 0,
+                message = content?.string("message") ?: json.string("content") ?: "",
+                pictures = pictures,
+                ctime = json.long("ctime", 0L),
+                likeCount = json.long("like", 0L),
+                replyCount =
+                    json.int(
+                        "rcount",
+                        json.int("count", 0),
+                    ),
+                isLiked = action == 1,
+                // reply_control.up_like 表示「UP 主点赞」，与评论者是否为 UP 主无关，
+                // 因此只能用作者 mid 与视频 UP 主 mid 比对
+                isUp = upperMid > 0L && mid == upperMid,
+            )
+        }
+
+        /**
+         * 将 App gRPC 评论模型转换为统一评论模型。
+         *
+         * @param upperMid 视频 UP 主 mid，规则与 [fromJson] 一致
+         */
+        fun fromGrpc(
+            reply: ReplyInfo,
+            oid: Long,
+            defaultType: Int = 1,
+            upperMid: Long = 0L,
+        ): Comment =
+            Comment(
+                rpid = reply.id,
+                oid = if (reply.oid != 0L) reply.oid else oid,
+                type = if (reply.type != 0L) reply.type.toInt() else defaultType,
+                mid = reply.mid,
+                rootRpid = reply.root,
+                parentRpid = reply.parent,
+                userName = reply.member.name,
+                avatar = reply.member.face,
+                level = reply.member.level.toInt(),
+                message = reply.content.message,
+                pictures = reply.content.picturesList.map { it.imgSrc },
+                ctime = reply.ctime,
+                likeCount = reply.like,
+                replyCount = reply.count.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                isLiked = reply.replyControl.action == 1L,
+                isUp = upperMid > 0L && reply.mid == upperMid,
+            )
+    }
+}
+
+/**
+ * 评论分页结果。
+ *
+ * @property comments 本页评论
+ * @property page 当前页码（Web 翻页通道使用，从 1 开始；游标通道不依赖页码，恒为 1）
+ * @property total 服务端返回的评论总数，未知时为 0
+ * @property hasMore 是否还有下一页
+ * @property nextCursor App gRPC 通道的下一页游标（数字），Web 通道为 null
+ * @property paginationOffset Web 懒加载通道的下一页偏移，形如
+ *   `{"type":3,"direction":1,"Data":{"cursor":71859}}`。
+ *   该值必须**原样回传**给下一次请求，不要在本地解析后重组——服务端按字符串匹配，
+ *   自行序列化出的字段顺序差异可能导致翻页失败。gRPC 与翻页通道均为 null。
+ * @property replyPreviews 根评论 rpid -> 接口自带的楼中楼预览（仅一层，通常 3 条），
+ *   用于收起态直接展示，避免为预览额外请求
+ * @property hots 热评列表（懒加载通道的 `data.hots`，翻页/游标之外单独一组）。
+ *   置顶评论不会重复出现在这里。
+ * @property topReplies 置顶评论，按「管理员置顶 → UP 主置顶」顺序。
+ *   这些条目仍会出现在 [comments] 里，UI 需按 rpid 去重后单独置顶展示。
+ * @property supportedModes 服务端声明的可用排序方式（懒加载通道的 `cursor.support_mode`）。
+ *   为空表示未知，此时不做过滤。
+ */
+@Serializable
+data class CommentPage(
+    val comments: List<Comment>,
+    val page: Int,
+    val total: Int,
+    val hasMore: Boolean,
+    val nextCursor: Long? = null,
+    val paginationOffset: String? = null,
+    val replyPreviews: Map<Long, List<Comment>> = emptyMap(),
+    val hots: List<Comment> = emptyList(),
+    val topReplies: List<Comment> = emptyList(),
+    val supportedModes: List<Int> = emptyList(),
+)
+
+private fun JsonObject.string(name: String): String? = this[name]?.jsonPrimitive?.contentOrNull
+
+private fun JsonObject.long(
+    name: String,
+    default: Long,
+): Long = this[name]?.jsonPrimitive?.longOrNull ?: default
+
+private fun JsonObject.int(
+    name: String,
+    default: Int,
+): Int = this[name]?.jsonPrimitive?.intOrNull ?: default

@@ -227,7 +227,7 @@ val mediaSource = MergingMediaSource(videoSource, audioSource)
 | 类/接口 | PascalCase | `VideoPlayerViewModel` |
 | 函数/变量 | camelCase | `seekToPosition` |
 | 常量 | SCREAMING_SNAKE_CASE | `MAX_RETRY_COUNT` |
-| 包名 | 全小写 | `dev.frost819.newbv.player` |
+| 包名 | 全小写 | `dev.otfiles.newbv.player` |
 | Composable | PascalCase | `VideoPlayerScreen` |
 | 枚举值 | PascalCase | `R1080P`, `ApiType.Web` |
 | 资源 ID | snake_case | `video_player_menu` |
@@ -235,7 +235,7 @@ val mediaSource = MergingMediaSource(videoSource, audioSource)
 ### 3.3 包结构
 
 ```
-dev.frost819.newbv/
+dev.otfiles.newbv/
 ├── app/               # Application 类
 ├── data/              # 数据层
 │   ├── db/            # Room 实体与 DAO
@@ -307,7 +307,7 @@ dev.frost819.newbv/
 - 保留原版的 buvid 生成算法
 - **删除**所有代理相关代码（`BiliHttpProxyApi`、`ProxyArea`、`proxyChannel`、Ali CDN 替换）
 - **删除** Firebase 相关
-- 包名从 `dev.aaa1115910.biliapi` 改为 `dev.frost819.newbv.biliapi`
+- 包名从 `dev.aaa1115910.biliapi` 改为 `dev.otfiles.newbv.biliapi`
 
 ### 4.3 参考 bilibili-API-collect 文档
 
@@ -1155,9 +1155,9 @@ adb install -r -d app-debug.apk
 
 #### 11.6.2 包名与 R 类
 
-- Debug 包名带 suffix：`dev.frost819.newbv.debug`（非 `dev.frost819.newbv`）
-- R 类包名：`dev.frost819.newbv.R`（非 `dev.frost819.newbv.app.R`）
-- Activity 全路径：`dev.frost819.newbv.app.MainActivity`
+- Debug 包名带 suffix：`dev.otfiles.newbv.debug`（非 `dev.otfiles.newbv`）
+- R 类包名：`dev.otfiles.newbv.R`（非 `dev.otfiles.newbv.app.R`）
+- Activity 全路径：`dev.otfiles.newbv.app.MainActivity`
 
 #### 11.6.3 模拟器 UI 自动化测试
 
@@ -1735,7 +1735,7 @@ wsClient.newWebSocket(request, listener)
 **要点**：
 1. **包名保持 `com.kuaishou.akdanmaku`**：便于对照上游更新，不做包名重构
 2. **依赖**：gdx 1.12.0 + ashley 1.7.4（登记 `libs.versions.toml`），`jniLibs/` 的 libgdx.so 与原 AAR 打包等价
-3. **AGP 9 的 `BuildConfig`**：模块启用 `buildFeatures { buildConfig = true }`，生成类在 namespace 包下（`dev.frost819.newbv.danmaku.engine.BuildConfig`），vendored 的 `Trace.kt` 需改 import
+3. **AGP 9 的 `BuildConfig`**：模块启用 `buildFeatures { buildConfig = true }`，生成类在 namespace 包下（`dev.otfiles.newbv.danmaku.engine.BuildConfig`），vendored 的 `Trace.kt` 需改 import
 4. **detekt 豁免**：第三方源码不参与 detekt（根 `build.gradle.kts` 按 `project.name == "danmaku-engine"` 禁用），ktlint 保持开启
 5. 升级上游时重新拷贝 `library/src/main/java` + `jniLibs`，重新应用差异（见 `danmaku-engine/README.md`）
 

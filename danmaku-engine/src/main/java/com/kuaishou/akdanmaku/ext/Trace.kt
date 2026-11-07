@@ -24,7 +24,7 @@
 package com.kuaishou.akdanmaku.ext
 
 import android.os.Trace
-import dev.frost819.newbv.danmaku.engine.BuildConfig
+import dev.otfiles.newbv.danmaku.engine.BuildConfig
 
 /**
  * Trace 相关封装

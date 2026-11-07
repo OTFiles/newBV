@@ -46,7 +46,7 @@ android {
         versionCode = AppConfiguration.versionCode
         versionName = AppConfiguration.versionName
 
-        testInstrumentationRunner = "dev.frost819.newbv.app.CustomTestRunner"
+        testInstrumentationRunner = "dev.otfiles.newbv.app.CustomTestRunner"
         vectorDrawables {
             useSupportLibrary = true
         }

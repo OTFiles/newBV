@@ -5,8 +5,8 @@
  * 供各模块 build.gradle.kts 引用。
  */
 object AppConfiguration {
-    const val appId = "dev.frost819.newbv"
-    const val applicationId = "dev.frost819.newbv"
+    const val appId = "dev.otfiles.newbv"
+    const val applicationId = "dev.otfiles.newbv"
     const val compileSdk = 36
     const val minSdk = 21
     const val targetSdk = 36
