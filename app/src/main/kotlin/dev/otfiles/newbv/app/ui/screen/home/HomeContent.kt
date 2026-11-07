@@ -30,6 +30,7 @@ import dev.otfiles.newbv.app.ui.component.FocusSaver
 import dev.otfiles.newbv.app.ui.component.HomeTabItem
 import dev.otfiles.newbv.app.ui.component.TopNav
 import dev.otfiles.newbv.app.ui.component.enterTransitionSpec
+import dev.otfiles.newbv.app.ui.component.slideTransitionSpec
 import dev.otfiles.newbv.app.ui.component.exitTransitionSpec
 import dev.otfiles.newbv.app.viewmodel.home.HomeViewModel
 import dev.otfiles.newbv.data.datastore.HomeTopNavItem
@@ -110,13 +111,6 @@ fun HomeContent(
             AnimatedContent(
                 targetState = selectedTab,
                 label = "home-animated-content",
-                // contentKey 让 Compose 用「Tab 枚举」而不是整个 state 对象
-                // 来决定是否复用内容槽位。缺省时每次重组都可能被判为新内容，
-                // 触发不必要的进入动画与重建。
-                contentKey = { it },
-                // 两页都是 fillMaxSize，尺寸动画没有任何视觉收益，
-                // 却让每一帧都多做一次布局测量。关掉可以显著减少切换期间的主线程负载。
-                sizeTransform = null,
                 transitionSpec = {
                     val coefficient = 10
                     // 显式指定短时长的 spec：默认 300ms 在 TV 上明显拖沓，
@@ -125,19 +119,19 @@ fun HomeContent(
                         reorderedItems.indexOf(HomeTabItem(initialState))
                     ) {
                         (
-                            fadeIn(enterTransitionSpec()) +
-                                slideInHorizontally(enterTransitionSpec()) { -it / coefficient }
+                            fadeIn(enterTransitionSpec<Float>()) +
+                                slideInHorizontally(slideTransitionSpec()) { -it / coefficient }
                         ) togetherWith (
-                            fadeOut(exitTransitionSpec()) +
-                                slideOutHorizontally(exitTransitionSpec()) { it / coefficient }
+                            fadeOut(exitTransitionSpec<Float>()) +
+                                slideOutHorizontally(slideTransitionSpec()) { it / coefficient }
                         )
                     } else {
                         (
-                            fadeIn(enterTransitionSpec()) +
-                                slideInHorizontally(enterTransitionSpec()) { it / coefficient }
+                            fadeIn(enterTransitionSpec<Float>()) +
+                                slideInHorizontally(slideTransitionSpec()) { it / coefficient }
                         ) togetherWith (
-                            fadeOut(exitTransitionSpec()) +
-                                slideOutHorizontally(exitTransitionSpec()) { -it / coefficient }
+                            fadeOut(exitTransitionSpec<Float>()) +
+                                slideOutHorizontally(slideTransitionSpec()) { -it / coefficient }
                         )
                     }
                 },

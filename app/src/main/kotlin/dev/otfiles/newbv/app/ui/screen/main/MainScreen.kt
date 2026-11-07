@@ -35,6 +35,7 @@ import androidx.tv.material3.DrawerValue
 import androidx.tv.material3.NavigationDrawer
 import androidx.tv.material3.rememberDrawerState
 import dev.otfiles.newbv.app.ui.component.enterTransitionSpec
+import dev.otfiles.newbv.app.ui.component.slideTransitionSpec
 import dev.otfiles.newbv.app.ui.component.exitTransitionSpec
 import dev.otfiles.newbv.app.ui.component.rememberDoublePressExit
 import dev.otfiles.newbv.app.ui.component.rememberFocusSaver
@@ -132,10 +133,6 @@ fun MainScreen(
             AnimatedContent(
                 targetState = selectedDrawerItem,
                 label = "main-animated-content",
-                // 两页都是 fillMaxSize，尺寸动画没有任何视觉收益，
-                // 却让每一帧都多做一次布局测量。关掉可以显著减少切换期间的主线程负载。
-                sizeTransform = null,
-                contentKey = { it },
                 transitionSpec = {
                     val coefficient = 20
                     // 与首页 Tab 一致：显式短时长，默认 300ms 在 TV 上拖沓。
@@ -143,19 +140,19 @@ fun MainScreen(
                     // 能更快释放它的组合与图片请求。
                     if (targetState.ordinal < initialState.ordinal) {
                         (
-                            fadeIn(enterTransitionSpec()) +
-                                slideInVertically(enterTransitionSpec()) { -it / coefficient }
+                            fadeIn(enterTransitionSpec<Float>()) +
+                                slideInVertically(slideTransitionSpec()) { -it / coefficient }
                         ) togetherWith (
-                            fadeOut(exitTransitionSpec()) +
-                                slideOutVertically(exitTransitionSpec()) { it / coefficient }
+                            fadeOut(exitTransitionSpec<Float>()) +
+                                slideOutVertically(slideTransitionSpec()) { it / coefficient }
                         )
                     } else {
                         (
-                            fadeIn(enterTransitionSpec()) +
-                                slideInVertically(enterTransitionSpec()) { it / coefficient }
+                            fadeIn(enterTransitionSpec<Float>()) +
+                                slideInVertically(slideTransitionSpec()) { it / coefficient }
                         ) togetherWith (
-                            fadeOut(exitTransitionSpec()) +
-                                slideOutVertically(exitTransitionSpec()) { -it / coefficient }
+                            fadeOut(exitTransitionSpec<Float>()) +
+                                slideOutVertically(slideTransitionSpec()) { -it / coefficient }
                         )
                     }
                 },
