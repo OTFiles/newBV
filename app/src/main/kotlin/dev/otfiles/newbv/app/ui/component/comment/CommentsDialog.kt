@@ -578,7 +578,9 @@ private fun CommentsContent(
             onSubmit = onPostComment,
             onCancelReply = onCancelReply,
             onCollapseFocusTo = {
-                // 收起输入区后把焦点交回评论列表的第一项
+                // 收起后把焦点交回评论列表的第一张卡片。
+                // 这里不指向折叠按钮：该按钮此刻刚进入组合，尚未完成布局，
+                // requestFocus 会静默失败且不报错，焦点就会「凭空消失」。
                 runCatching { listFocusRequester.requestFocus() }
             },
         )
@@ -1165,7 +1167,9 @@ private fun CommentComposer(
     /** 收起输入区并把焦点交给调用方安排的落点（通常回到评论列表）。 */
     fun collapse() {
         expanded = false
-        // 收起后焦点交还列表，避免停留在已消失的输入框上
+        // 收起后焦点要去处明确。requestFocus() 在节点尚未完成布局时是静默失败的
+        // （不抛异常），无法靠返回值判断，因此改由调用方统一处理：
+        // 等一帧让折叠按钮完成布局，再请求焦点；失败则由调用方退回列表首项。
         onCollapseFocusTo()
     }
 
@@ -1188,8 +1192,9 @@ private fun CommentComposer(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .focusRequester(collapsedButtonFocusRequester)
-                        .touchClickable { expanded = true },
+                        .focusRequester(collapsedButtonFocusRequester),
+                // Surface 的 onClick 已经处理点击，不再叠 touchClickable：
+                // 两者同时存在会导致触屏点一次触发两次
                 onClick = { expanded = true },
                 shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
                 colors =
