@@ -73,7 +73,7 @@ fun UISetting(modifier: Modifier = Modifier) {
     var showPanelPositionDialog by remember { mutableStateOf(false) }
     var showPanelSizeDialog by remember { mutableStateOf(false) }
     var panelPosition by remember { mutableStateOf(Prefs.playerCommentPanelPosition) }
-    var panelSize by remember { mutableStateOf(Prefs.playerCommentPanelSize) }
+    var panelFraction by remember { mutableFloatStateOf(Prefs.playerCommentPanelFraction) }
     var panelOpacity by remember { mutableFloatStateOf(Prefs.playerCommentPanelOpacity) }
     var selectedLeftNavItem by remember { mutableStateOf(Prefs.homeLeftNavItem) }
     var selectedFirstHomeTopNavItem by remember { mutableStateOf(Prefs.firstHomeTopNavItem) }
@@ -168,8 +168,26 @@ fun UISetting(modifier: Modifier = Modifier) {
                 }
                 item {
                     SettingListItem(
-                        title = "播放器评论面板大小",
-                        supportText = "当前：${panelSize.displayName}",
+                        title = "播放器评论面板大小（微调）",
+                        supportText = "当前：${(panelFraction * 100).roundToInt()}%（点按 +5%，到上限回到下限）",
+                        onClick = {
+                            val step = 0.05f
+                            val next = panelFraction + step
+                            panelFraction =
+                                if (next > CommentPanelSize.MAX_FRACTION + 0.001f) {
+                                    CommentPanelSize.MIN_FRACTION
+                                } else {
+                                    CommentPanelSize.coerceFraction(next)
+                                }
+                            Prefs.playerCommentPanelFraction = panelFraction
+                        },
+                    )
+                }
+                item {
+                    SettingListItem(
+                        title = "播放器评论面板大小（快捷档位）",
+                        supportText =
+                            "当前：${CommentPanelSize.closestTo(panelFraction)?.displayName ?: "自定义"}",
                         onClick = { showPanelSizeDialog = true },
                     )
                 }
@@ -264,12 +282,15 @@ fun UISetting(modifier: Modifier = Modifier) {
     }
 
     if (showPanelSizeDialog) {
+        val currentPreset =
+            CommentPanelSize.closestTo(panelFraction) ?: CommentPanelSize.Medium
         OptionDialog(
             options = CommentPanelSize.entries.toTypedArray(),
-            selectedOption = panelSize,
+            selectedOption = currentPreset,
             onDismiss = { showPanelSizeDialog = false },
             onSelect = {
-                panelSize = it
+                panelFraction = it.fraction
+                Prefs.playerCommentPanelFraction = it.fraction
                 Prefs.playerCommentPanelSize = it
             },
             getDisplayName = { it.displayName },

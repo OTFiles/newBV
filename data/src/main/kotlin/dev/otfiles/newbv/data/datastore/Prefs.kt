@@ -338,7 +338,25 @@ object Prefs {
         restore = { CommentPanelPosition.fromOrdinal(it) },
     )
 
-    /** 播放器评论面板占屏比例档位。 */
+    /**
+     * 播放器评论面板占屏比例（权威值，0.20..0.75）。
+     *
+     * 读取时统一夹到合法区间：历史数据、手工改过的 DataStore、
+     * 或未来调整常量后越界的旧值，都不会让面板尺寸变成奇怪的结果。
+     */
+    var playerCommentPanelFraction: Float
+        get() = CommentPanelSize.coerceFraction(rawPanelFraction)
+        set(value) {
+            rawPanelFraction = CommentPanelSize.coerceFraction(value)
+        }
+
+    /** 比例的实际存储字段，外部请用 [playerCommentPanelFraction]。 */
+    private var rawPanelFraction by pref(
+        PrefKeys.playerCommentPanelFraction,
+        CommentPanelSize.DEFAULT_FRACTION,
+    )
+
+    /** 上次选择的预设档位，仅用于设置页高亮，不参与布局计算。 */
     var playerCommentPanelSize by pref(
         PrefKeys.playerCommentPanelSize,
         CommentPanelSize.Medium,

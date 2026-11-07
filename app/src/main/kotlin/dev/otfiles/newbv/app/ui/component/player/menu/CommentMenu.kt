@@ -15,6 +15,7 @@ import dev.otfiles.newbv.data.datastore.CommentPanelPosition
 import dev.otfiles.newbv.data.datastore.CommentPanelSize
 import dev.otfiles.newbv.data.datastore.Prefs
 import java.text.NumberFormat
+import kotlin.math.roundToInt
 
 /**
  * 播放器评论面板设置。
@@ -37,7 +38,7 @@ fun CommentMenuList(
     onFocusStateChange: (MenuFocusState) -> Unit,
 ) {
     var position by remember { mutableStateOf(Prefs.playerCommentPanelPosition) }
-    var size by remember { mutableStateOf(Prefs.playerCommentPanelSize) }
+    var fraction by remember { mutableStateOf(Prefs.playerCommentPanelFraction) }
     var opacity by remember { mutableStateOf(Prefs.playerCommentPanelOpacity) }
     var scrimOpacity by remember { mutableStateOf(Prefs.playerCommentPanelScrimOpacity) }
 
@@ -64,14 +65,43 @@ fun CommentMenuList(
                     onFocusBackToParent = backToMenu,
                 )
 
-            VideoPlayerCommentMenuItem.Size ->
+            VideoPlayerCommentMenuItem.Size -> {
+                // 先给一个可连续调节的滑块（任意比例），
+                // 再提供四档预设做快速定位——点预设等价于把滑块拖到该值，
+                // 两者写的是同一个 Float，不会互相覆盖。
+                StepLessMenuItem(
+                    modifier = itemModifier,
+                    value = fraction,
+                    step = 0.01f,
+                    range = CommentPanelSize.MIN_FRACTION..CommentPanelSize.MAX_FRACTION,
+                    text = "${(fraction * 100).roundToInt()}%",
+                    onValueChange = {
+                        fraction = CommentPanelSize.coerceFraction(it)
+                        Prefs.playerCommentPanelFraction = fraction
+                        // 命中预设时同步高亮状态，纯展示用途
+                        CommentPanelSize.closestTo(fraction)?.let { Prefs.playerCommentPanelSize = it }
+                    },
+                    onFocusBackToParent = backToMenu,
+                )
+            }
+
+            VideoPlayerCommentMenuItem.SizePreset ->
                 RadioMenuList(
                     modifier = itemModifier,
                     items = CommentPanelSize.entries.map { it.displayName },
-                    selected = size.ordinal,
+                    // 未命中任何预设时高亮「最接近」的一档，而不是 -1：
+                    // RadioMenuList 依赖 selected 索引设置初始焦点，
+                    // 传 -1 会让首次进入该面板时没有焦点落点。
+                    selected =
+                        (
+                            CommentPanelSize.closestTo(fraction) ?: CommentPanelSize.entries.minByOrNull {
+                                kotlin.math.abs(it.fraction - fraction)
+                            }
+                        )?.ordinal ?: 0,
                     onSelectedChanged = { index ->
                         CommentPanelSize.entries.getOrNull(index)?.let {
-                            size = it
+                            fraction = it.fraction
+                            Prefs.playerCommentPanelFraction = it.fraction
                             Prefs.playerCommentPanelSize = it
                         }
                     },

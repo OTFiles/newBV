@@ -111,7 +111,8 @@ enum class VideoPlayerCommentMenuItem(
     val displayName: String,
 ) {
     Position("位置"),
-    Size("占屏大小"),
+    Size("大小（任意比例）"),
+    SizePreset("大小（快捷档位）"),
     Opacity("不透明度"),
     ScrimOpacity("背景遮罩"),
 }

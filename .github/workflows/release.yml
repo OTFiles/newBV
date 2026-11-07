@@ -13,7 +13,7 @@ jobs:
   build-release:
     name: Build & Publish Release
     runs-on: ubuntu-latest
-    if: github.repository == 'Frost819/newBV'
+    if: github.repository == 'OTFiles/newBV'
 
     steps:
       - name: Checkout
@@ -28,8 +28,8 @@ jobs:
           set -euo pipefail
           NOTES=".github/release-notes/${TAG}.md"
           if [ ! -f "$NOTES" ]; then
-            echo "::error::缺少发版摘要 $NOTES，请先提交该文件再打 tag"
-            exit 1
+            # 本 fork 不强制要求逐步维护发版摘要，缺失时只提示
+            echo "::warning::未找到发版摘要 $NOTES，将使用自动生成的 changelog"
           fi
 
           PREV="$(git tag --sort=-v:refname | grep -vxF "$TAG" | head -n 1 || true)"
@@ -47,16 +47,48 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Set up Android SDK
+        run: |
+          set -euo pipefail
+          # runner 已预装 Android SDK；android-actions/setup-android 会去装已被移除的 tools 包
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
+          SDK_ROOT="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER=$(find "$SDK_ROOT" -name sdkmanager -type f | head -n 1)
+          fi
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" "platform-tools" 2>&1 | tail -5 || true
+          echo "sdk.dir=$SDK_ROOT" > local.properties
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
       - name: Decode signing config
         env:
-          SIGNING_PROPERTIES: ${{ secrets.SIGNING_PROPERTIES }}
-          SIGN_KEY: ${{ secrets.SIGN_KEY }}
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
-          echo "$SIGNING_PROPERTIES" | base64 -d > signing.properties
-          echo "$SIGN_KEY" | base64 -d > key.jks
+          set -euo pipefail
+          if [ -z "${SIGNING_KEYSTORE_BASE64:-}" ]; then
+            echo "::warning::未配置签名 secret，release APK 将未签名（无法直接安装）"
+            exit 0
+          fi
+          echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > key.jks
+          # 用 printf 而不是 heredoc：脚本在 run: 块里带缩进，
+          # heredoc 会把缩进空格一起写进 properties 文件导致解析失败
+          {
+            echo "releaseStoreFile=key.jks"
+            echo "releaseStorePassword=${SIGNING_STORE_PASSWORD}"
+            echo "releaseKeyAlias=${SIGNING_KEY_ALIAS}"
+            echo "releaseKeyPassword=${SIGNING_KEY_PASSWORD}"
+          } > signing.properties
 
       - name: Configure app crash token
         env:

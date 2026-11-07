@@ -143,12 +143,12 @@ private data class CommentPanelAppearance(
 @Composable
 private fun rememberPlayerCommentAppearance(): CommentPanelAppearance {
     val position = Prefs.playerCommentPanelPosition
-    val size = Prefs.playerCommentPanelSize
+    // 用权威的 Float 比例，而不是预设档位，这样滑块微调也能生效
+    val fraction = Prefs.playerCommentPanelFraction
     val panelOpacity = Prefs.playerCommentPanelOpacity.coerceIn(0f, 1f)
     val scrimOpacity = Prefs.playerCommentPanelScrimOpacity.coerceIn(0f, 1f)
 
-    return remember(position, size, panelOpacity, scrimOpacity) {
-        val fraction = size.fraction
+    return remember(position, fraction, panelOpacity, scrimOpacity) {
         when (position) {
             CommentPanelPosition.Right ->
                 CommentPanelAppearance(

@@ -318,28 +318,54 @@ enum class CommentPanelPosition(
 }
 
 /**
- * 播放器评论面板的占屏比例。
+ * 播放器评论面板的占屏比例快捷档位。
  *
- * 通过 ordinal 持久化，反序列化时越界回退到 [Medium]。
+ * **仅作为快捷预设存在**，真正的比例值保存在
+ * [Prefs.playerCommentPanelFraction]（Float），用户可以用滑块调到任意值。
+ * 点击某一档时把 [fraction] 写入该 Float，因此「选预设」与「手动微调」共用同一份状态，
+ * 不会出现两个来源互相覆盖的问题。
  *
- * 面板不会再压满整个屏幕：无论哪一档，都会保留至少一部分画面可见，
+ * 面板不会压满整个屏幕：最大档也留出可见画面，
  * 这样「边看边刷评论」时视频不会被完全挡住。
  *
- * @property fraction 面板占据可用空间的比例（仅针对停靠方向上的尺寸）
+ * @property fraction 该档位对应的比例值
  * @property displayName 设置页显示名
  */
 enum class CommentPanelSize(
     val fraction: Float,
     val displayName: String,
 ) {
-    Small(0.30f, "小（30%）"),
-    Medium(0.42f, "中（42%）"),
-    Large(0.55f, "大（55%）"),
-    XLarge(0.68f, "特大（68%）"),
+    Small(0.30f, "小 30%"),
+    Medium(0.42f, "中 42%"),
+    Large(0.55f, "大 55%"),
+    XLarge(0.68f, "特大 68%"),
     ;
 
     companion object {
+        /** 面板可调比例的硬性下限（再小就放不下评论内容）。 */
+        const val MIN_FRACTION = 0.20f
+
+        /**
+         * 面板可调比例的硬性上限。
+         *
+         * 上限不到 1，保证任何情况下视频都还露着一部分——这是本功能的立身之本，
+         * 面板能盖满屏幕的话「边看边刷评论」就没有意义了。
+         */
+        const val MAX_FRACTION = 0.75f
+
+        /** 默认比例，与 [Medium] 一致。 */
+        const val DEFAULT_FRACTION = 0.42f
+
+        /** 把任意输入夹到合法区间，同时兜住 NaN。 */
+        fun coerceFraction(value: Float): Float =
+            if (value.isNaN()) DEFAULT_FRACTION else value.coerceIn(MIN_FRACTION, MAX_FRACTION)
+
         /** 从序号安全解析，越界返回 [Medium]。 */
         fun fromOrdinal(ordinal: Int): CommentPanelSize = entries.getOrElse(ordinal) { Medium }
+
+        /** 找出与给定比例最接近的预设档，用于 UI 高亮；无匹配返回 null。 */
+        fun closestTo(fraction: Float): CommentPanelSize? =
+            entries.minByOrNull { kotlin.math.abs(it.fraction - fraction) }
+                ?.takeIf { kotlin.math.abs(it.fraction - fraction) < 0.001f }
     }
 }

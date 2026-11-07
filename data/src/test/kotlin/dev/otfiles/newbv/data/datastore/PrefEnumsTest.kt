@@ -366,4 +366,35 @@ class PrefEnumsTest {
         // 任何档位都不能占满全屏（否则视频被完全遮住），也不能小到看不见
         assertThat(fractions.all { it > 0f && it < 1f }).isTrue()
     }
+
+    @Test
+    fun `all presets stay within the adjustable range`() {
+        // 预设必须落在滑块允许的区间内，否则点了预设再拖滑块会突然跳变
+        CommentPanelSize.entries.forEach {
+            assertThat(it.fraction >= CommentPanelSize.MIN_FRACTION).isTrue()
+            assertThat(it.fraction <= CommentPanelSize.MAX_FRACTION).isTrue()
+        }
+    }
+
+    @Test
+    fun `coerceFraction clamps out of range values`() {
+        assertThat(CommentPanelSize.coerceFraction(0.9f)).isEqualTo(CommentPanelSize.MAX_FRACTION)
+        assertThat(CommentPanelSize.coerceFraction(0.01f)).isEqualTo(CommentPanelSize.MIN_FRACTION)
+        assertThat(CommentPanelSize.coerceFraction(0.5f)).isEqualTo(0.5f)
+    }
+
+    @Test
+    fun `coerceFraction falls back to default on NaN`() {
+        // DataStore 里理论上不会有 NaN，但一旦出现不能让尺寸变成 NaN 传给 Compose
+        assertThat(CommentPanelSize.coerceFraction(Float.NaN))
+            .isEqualTo(CommentPanelSize.DEFAULT_FRACTION)
+    }
+
+    @Test
+    fun `closestTo matches preset exactly and rejects arbitrary value`() {
+        assertThat(CommentPanelSize.closestTo(0.42f)).isEqualTo(CommentPanelSize.Medium)
+        assertThat(CommentPanelSize.closestTo(0.55f)).isEqualTo(CommentPanelSize.Large)
+        // 0.50 不是任何预设，滑块微调后不应假装命中某一档
+        assertThat(CommentPanelSize.closestTo(0.50f)).isNull()
+    }
 }

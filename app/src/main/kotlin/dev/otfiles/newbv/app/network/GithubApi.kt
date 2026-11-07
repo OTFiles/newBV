@@ -26,11 +26,11 @@ import java.io.File
 /**
  * GitHub Releases API 封装。
  *
- * 用于检查更新和下载 APK。仓库地址：`Frost819/newBV`。
+ * 用于检查更新和下载 APK。仓库地址：`OTFiles/newBV`（本 fork 自己的 Release）。
  * 下载通过 `ghfast.top` 代理加速国内访问。
  */
 object GithubApi {
-    private const val OWNER = "Frost819"
+    private const val OWNER = "OTFiles"
     private const val REPO = "newBV"
 
     private val json =
@@ -92,11 +92,16 @@ object GithubApi {
         file: File,
         onProgress: (downloaded: Long, total: Long) -> Unit = { _, _ -> },
     ) {
+        // 只认 .apk，避免误把 mapping、源码包等附件当成安装包。
+        // 上游用文件名里的 release/alpha 区分渠道，本 fork 的产物名形如
+        // newBV_210_1.3.0.r210.abc1234_release.apk，同样满足前缀匹配；
+        // 但为了兼容后续改名，这里放宽为「以 .apk 结尾」并优先 release。
+        val apkAssets = release.assets.filter { it.name.endsWith(".apk", ignoreCase = true) }
         val downloadUrl =
-            release.assets
-                .firstOrNull {
-                    it.name.contains("release") || it.name.contains("alpha")
-                }?.browserDownloadUrl
+            (
+                apkAssets.firstOrNull { it.name.contains("release") }
+                    ?: apkAssets.firstOrNull()
+            )?.browserDownloadUrl
                 ?: throw IllegalStateException("Didn't find download url")
 
         client

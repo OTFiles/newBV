@@ -67,7 +67,15 @@ internal object PrefKeys {
     /** 面板停靠位置（CommentPanelPosition ordinal）。 */
     val playerCommentPanelPosition = intPreferencesKey("pcp_position")
 
-    /** 面板占屏比例档位（CommentPanelSize ordinal）。 */
+    /**
+     * 面板占屏比例（0.20..0.75 的 Float）。
+     *
+     * 这是权威值；[playerCommentPanelSize] 只是「上次点击的预设档」，
+     * 仅用于设置页高亮，不参与布局计算。
+     */
+    val playerCommentPanelFraction = floatPreferencesKey("pcp_fraction")
+
+    /** 上次选择的预设档位（CommentPanelSize ordinal），仅用于 UI 高亮。 */
     val playerCommentPanelSize = intPreferencesKey("pcp_size")
 
     /** 面板背景透明度，0..1，越小越透明。 */
