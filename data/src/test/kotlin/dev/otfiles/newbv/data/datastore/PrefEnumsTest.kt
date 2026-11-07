@@ -333,4 +333,37 @@ class PrefEnumsTest {
     fun `ThemeMode fromOrdinal returns Light for 2`() {
         assertThat(ThemeMode.fromOrdinal(2)).isEqualTo(ThemeMode.Light)
     }
+
+    // ===== 播放器评论面板外观 =====
+
+    @Test
+    fun `CommentPanelPosition fromOrdinal falls back to Right on invalid value`() {
+        assertThat(CommentPanelPosition.fromOrdinal(0)).isEqualTo(CommentPanelPosition.Right)
+        assertThat(CommentPanelPosition.fromOrdinal(1)).isEqualTo(CommentPanelPosition.Left)
+        assertThat(CommentPanelPosition.fromOrdinal(99)).isEqualTo(CommentPanelPosition.Right)
+        assertThat(CommentPanelPosition.fromOrdinal(-1)).isEqualTo(CommentPanelPosition.Right)
+    }
+
+    @Test
+    fun `CommentPanelPosition vertical flag matches left and right`() {
+        assertThat(CommentPanelPosition.Right.isVertical).isTrue()
+        assertThat(CommentPanelPosition.Left.isVertical).isTrue()
+        assertThat(CommentPanelPosition.Top.isVertical).isFalse()
+        assertThat(CommentPanelPosition.Bottom.isVertical).isFalse()
+    }
+
+    @Test
+    fun `CommentPanelSize fromOrdinal falls back to Medium on invalid value`() {
+        assertThat(CommentPanelSize.fromOrdinal(1)).isEqualTo(CommentPanelSize.Medium)
+        assertThat(CommentPanelSize.fromOrdinal(99)).isEqualTo(CommentPanelSize.Medium)
+    }
+
+    @Test
+    fun `CommentPanelSize fractions increase monotonically and stay under 1`() {
+        val fractions = CommentPanelSize.entries.map { it.fraction }
+        // 必须单调递增，否则「调大一档反而变小」会让用户困惑
+        assertThat(fractions.zipWithNext().all { (a, b) -> b > a }).isTrue()
+        // 任何档位都不能占满全屏（否则视频被完全遮住），也不能小到看不见
+        assertThat(fractions.all { it > 0f && it < 1f }).isTrue()
+    }
 }

@@ -324,6 +324,44 @@ object Prefs {
     /** 默认防遮挡蒙版开关。 */
     var defaultDanmakuMask by pref(PrefKeys.defaultDanmakuMask, false)
 
+    // --- 播放器 - 评论面板外观 ---
+
+    /**
+     * 播放器评论面板停靠位置。
+     *
+     * 仅影响播放器内的评论弹窗；详情页的评论弹窗保持居中大窗不变。
+     */
+    var playerCommentPanelPosition by pref(
+        PrefKeys.playerCommentPanelPosition,
+        CommentPanelPosition.Right,
+        save = { it.ordinal },
+        restore = { CommentPanelPosition.fromOrdinal(it) },
+    )
+
+    /** 播放器评论面板占屏比例档位。 */
+    var playerCommentPanelSize by pref(
+        PrefKeys.playerCommentPanelSize,
+        CommentPanelSize.Medium,
+        save = { it.ordinal },
+        restore = { CommentPanelSize.fromOrdinal(it) },
+    )
+
+    /**
+     * 播放器评论面板背景透明度（0..1）。
+     *
+     * 默认 0.92：不透明到能看清文字，但又保留一点视频画面，
+     * 配合「边看边刷评论」时不会完全遮挡画面。
+     */
+    var playerCommentPanelOpacity by pref(PrefKeys.playerCommentPanelOpacity, 0.92f)
+
+    /**
+     * 面板后方遮罩透明度（0..1）。
+     *
+     * 默认 0.35。设为 0 时整个屏幕除面板外完全不做压暗，
+     * 视频观感最接近「无遮挡」，但面板边缘可能和亮画面糊在一起。
+     */
+    var playerCommentPanelScrimOpacity by pref(PrefKeys.playerCommentPanelScrimOpacity, 0.35f)
+
     // --- 播放器 - 字幕（PRD 7.4） ---
 
     /** 默认字幕字号（SP）。 */

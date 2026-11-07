@@ -3,6 +3,7 @@ package dev.otfiles.newbv.app.viewmodel.player
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ClearAll
 import androidx.compose.material.icons.outlined.ClosedCaption
+import androidx.compose.material.icons.automirrored.outlined.Comment
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.runtime.compositionLocalOf
@@ -34,6 +35,7 @@ class PlayerMenuViewModel
                     selectedPictureItem = null,
                     selectedDanmakuItem = null,
                     selectedClosedCaptionItem = null,
+                    selectedCommentItem = null,
                 )
             }
         }
@@ -53,6 +55,11 @@ class PlayerMenuViewModel
             _menuState.update { it.copy(selectedClosedCaptionItem = item) }
         }
 
+        /** 选中评论面板设置中的子项。 */
+        fun selectCommentItem(item: VideoPlayerCommentMenuItem?) {
+            _menuState.update { it.copy(selectedCommentItem = item) }
+        }
+
         /** 关闭所有子项选择。 */
         fun clearSelection() {
             _menuState.update {
@@ -60,6 +67,7 @@ class PlayerMenuViewModel
                     selectedPictureItem = null,
                     selectedDanmakuItem = null,
                     selectedClosedCaptionItem = null,
+                    selectedCommentItem = null,
                 )
             }
         }
@@ -73,6 +81,7 @@ data class PlayerMenuState(
     val selectedPictureItem: VideoPlayerPictureMenuItem? = null,
     val selectedDanmakuItem: VideoPlayerDanmakuMenuItem? = null,
     val selectedClosedCaptionItem: VideoPlayerClosedCaptionMenuItem? = null,
+    val selectedCommentItem: VideoPlayerCommentMenuItem? = null,
 )
 
 /** 设置菜单导航 Tab。 */
@@ -84,6 +93,7 @@ enum class VideoPlayerMenuNavItem(
     Picture("画质", Icons.Outlined.Image),
     Danmaku("弹幕", Icons.Outlined.ClearAll),
     ClosedCaption("字幕", Icons.Outlined.ClosedCaption),
+    Comment("评论", Icons.AutoMirrored.Outlined.Comment),
 }
 
 /** 画质设置子项。 */
@@ -94,6 +104,16 @@ enum class VideoPlayerPictureMenuItem(
     Codec("编码"),
     AspectRatio("宽高比"),
     Audio("音轨"),
+}
+
+/** 评论面板设置子项。 */
+enum class VideoPlayerCommentMenuItem(
+    val displayName: String,
+) {
+    Position("位置"),
+    Size("占屏大小"),
+    Opacity("不透明度"),
+    ScrimOpacity("背景遮罩"),
 }
 
 /** 弹幕设置子项。 */

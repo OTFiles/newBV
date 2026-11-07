@@ -63,6 +63,19 @@ internal object PrefKeys {
     val defaultSubtitleBackgroundOpacity = floatPreferencesKey("dsbo")
     val defaultSubtitleBottomPadding = intPreferencesKey("dsbp")
 
+    // ===== 播放器 - 评论面板 =====
+    /** 面板停靠位置（CommentPanelPosition ordinal）。 */
+    val playerCommentPanelPosition = intPreferencesKey("pcp_position")
+
+    /** 面板占屏比例档位（CommentPanelSize ordinal）。 */
+    val playerCommentPanelSize = intPreferencesKey("pcp_size")
+
+    /** 面板背景透明度，0..1，越小越透明。 */
+    val playerCommentPanelOpacity = floatPreferencesKey("pcp_opacity")
+
+    /** 面板后方的遮罩（scrim）透明度，0..1；0 表示完全不要遮罩。 */
+    val playerCommentPanelScrimOpacity = floatPreferencesKey("pcp_scrim")
+
     // ===== 播放器 - 界面 =====
     val defaultPlaySpeed = intPreferencesKey("dps")
     val showVideoInfo = booleanPreferencesKey("show_video_info")

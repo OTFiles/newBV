@@ -320,6 +320,13 @@ private fun MenuList(
                     onFocusStateChange = onFocusStateChange,
                 )
             }
+
+            VideoPlayerMenuNavItem.Comment -> {
+                // 评论面板外观设置直接读写 Prefs，不经过 uiState
+                CommentMenuList(
+                    onFocusStateChange = onFocusStateChange,
+                )
+            }
         }
     }
 }

@@ -42,6 +42,8 @@ import dev.otfiles.newbv.app.ui.component.settings.SettingSwitchListItem
 import dev.otfiles.newbv.app.ui.component.settings.displayName
 import dev.otfiles.newbv.app.ui.screen.main.displayName
 import dev.otfiles.newbv.app.ui.screen.settings.SettingsMenuNavItem
+import dev.otfiles.newbv.data.datastore.CommentPanelPosition
+import dev.otfiles.newbv.data.datastore.CommentPanelSize
 import dev.otfiles.newbv.data.datastore.HomeTopNavItem
 import dev.otfiles.newbv.data.datastore.LeftNaviItem
 import dev.otfiles.newbv.data.datastore.PersonalTopNavItem
@@ -68,6 +70,11 @@ fun UISetting(modifier: Modifier = Modifier) {
     var showVideoInfo by remember { mutableStateOf(Prefs.showVideoInfo) }
     var showPersistentSeek by remember { mutableStateOf(Prefs.showPersistentSeek) }
     var commentKeepPlaying by remember { mutableStateOf(Prefs.commentKeepPlaying) }
+    var showPanelPositionDialog by remember { mutableStateOf(false) }
+    var showPanelSizeDialog by remember { mutableStateOf(false) }
+    var panelPosition by remember { mutableStateOf(Prefs.playerCommentPanelPosition) }
+    var panelSize by remember { mutableStateOf(Prefs.playerCommentPanelSize) }
+    var panelOpacity by remember { mutableFloatStateOf(Prefs.playerCommentPanelOpacity) }
     var selectedLeftNavItem by remember { mutableStateOf(Prefs.homeLeftNavItem) }
     var selectedFirstHomeTopNavItem by remember { mutableStateOf(Prefs.firstHomeTopNavItem) }
     var selectedFirstPersonalTopNavItem by remember { mutableStateOf(Prefs.firstPersonalTopNavItem) }
@@ -154,6 +161,31 @@ fun UISetting(modifier: Modifier = Modifier) {
                 }
                 item {
                     SettingListItem(
+                        title = "播放器评论面板位置",
+                        supportText = "当前：${panelPosition.displayName}",
+                        onClick = { showPanelPositionDialog = true },
+                    )
+                }
+                item {
+                    SettingListItem(
+                        title = "播放器评论面板大小",
+                        supportText = "当前：${panelSize.displayName}",
+                        onClick = { showPanelSizeDialog = true },
+                    )
+                }
+                item {
+                    SettingListItem(
+                        title = "播放器评论面板不透明度",
+                        supportText = "当前：${(panelOpacity * 100).roundToInt()}%（需重新打开评论生效）",
+                        onClick = {
+                            // 0.2~1.0 循环切换，避免在 TV 上再引入一个滑块对话框
+                            panelOpacity = if (panelOpacity >= 0.999f) 0.2f else panelOpacity + 0.2f
+                            Prefs.playerCommentPanelOpacity = panelOpacity
+                        },
+                    )
+                }
+                item {
+                    SettingListItem(
                         title = "界面缩放",
                         supportText = "当前：$density",
                         onClick = {
@@ -213,6 +245,32 @@ fun UISetting(modifier: Modifier = Modifier) {
             onSelect = {
                 Prefs.firstPersonalTopNavItem = it
                 selectedFirstPersonalTopNavItem = it
+            },
+            getDisplayName = { it.displayName },
+        )
+    }
+
+    if (showPanelPositionDialog) {
+        OptionDialog(
+            options = CommentPanelPosition.entries.toTypedArray(),
+            selectedOption = panelPosition,
+            onDismiss = { showPanelPositionDialog = false },
+            onSelect = {
+                panelPosition = it
+                Prefs.playerCommentPanelPosition = it
+            },
+            getDisplayName = { it.displayName },
+        )
+    }
+
+    if (showPanelSizeDialog) {
+        OptionDialog(
+            options = CommentPanelSize.entries.toTypedArray(),
+            selectedOption = panelSize,
+            onDismiss = { showPanelSizeDialog = false },
+            onSelect = {
+                panelSize = it
+                Prefs.playerCommentPanelSize = it
             },
             getDisplayName = { it.displayName },
         )

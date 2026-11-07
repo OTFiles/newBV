@@ -49,6 +49,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -85,6 +86,8 @@ import dev.otfiles.newbv.app.viewmodel.comment.CommentViewModel
 import dev.otfiles.newbv.app.viewmodel.comment.ReplyListState
 import dev.otfiles.newbv.app.viewmodel.comment.ReplyTarget
 import dev.otfiles.newbv.biliapi.entity.comment.Comment
+import dev.otfiles.newbv.data.datastore.CommentPanelPosition
+import dev.otfiles.newbv.data.datastore.Prefs
 import dev.otfiles.newbv.core.focus.isDpadDown
 import dev.otfiles.newbv.core.focus.isDpadLeft
 import dev.otfiles.newbv.core.focus.isDpadRight
@@ -97,6 +100,92 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 
 /** 楼中楼回复相对根评论的左侧缩进。 */
 private val REPLY_INDENT = 40.dp
+
+/**
+ * 播放器评论面板的外观。
+ *
+ * 把「位置 / 占屏比例 / 透明度」这组设置预先算成 Compose 能直接用的值，
+ * 避免在布局里散落 when 分支。形状也跟着停靠方向变：
+ * 贴右/左时圆角朝内，贴下/上时圆角朝内，视觉上才像「从屏幕边缘滑出的抽屉」。
+ *
+ * @property alignment 面板在容器内的对齐方式
+ * @property sizeModifier 尺寸约束（宽或高按占屏比例）
+ * @property shape 面板圆角形状
+ * @property panelOpacity 面板背景不透明度（0..1）
+ * @property scrimOpacity 面板外遮罩不透明度（0..1）
+ */
+private data class CommentPanelAppearance(
+    val alignment: Alignment,
+    val sizeModifier: Modifier,
+    val shape: Shape,
+    val panelOpacity: Float,
+    val scrimOpacity: Float,
+) {
+    companion object {
+        /** 详情页用的默认外观：右侧居中、固定宽度、较深遮罩。 */
+        val DetailDefault =
+            CommentPanelAppearance(
+                alignment = Alignment.CenterEnd,
+                sizeModifier = Modifier.fillMaxHeight().width(680.dp),
+                shape = RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp),
+                panelOpacity = 1f,
+                scrimOpacity = 0.62f,
+            )
+    }
+}
+
+/**
+ * 读取并组装播放器评论面板的外观设置。
+ *
+ * 数值直接读 [Prefs]（与播放器其它设置项一致，不做 Compose 状态订阅）：
+ * 这些值只在弹窗打开时使用一次，弹窗关闭后修改设置、再次打开即生效。
+ */
+@Composable
+private fun rememberPlayerCommentAppearance(): CommentPanelAppearance {
+    val position = Prefs.playerCommentPanelPosition
+    val size = Prefs.playerCommentPanelSize
+    val panelOpacity = Prefs.playerCommentPanelOpacity.coerceIn(0f, 1f)
+    val scrimOpacity = Prefs.playerCommentPanelScrimOpacity.coerceIn(0f, 1f)
+
+    return remember(position, size, panelOpacity, scrimOpacity) {
+        val fraction = size.fraction
+        when (position) {
+            CommentPanelPosition.Right ->
+                CommentPanelAppearance(
+                    alignment = Alignment.CenterEnd,
+                    // fillMaxHeight + fraction 宽度：高度占满，宽度按比例
+                    sizeModifier = Modifier.fillMaxHeight().fillMaxWidth(fraction),
+                    shape = RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp),
+                    panelOpacity = panelOpacity,
+                    scrimOpacity = scrimOpacity,
+                )
+            CommentPanelPosition.Left ->
+                CommentPanelAppearance(
+                    alignment = Alignment.CenterStart,
+                    sizeModifier = Modifier.fillMaxHeight().fillMaxWidth(fraction),
+                    shape = RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp),
+                    panelOpacity = panelOpacity,
+                    scrimOpacity = scrimOpacity,
+                )
+            CommentPanelPosition.Bottom ->
+                CommentPanelAppearance(
+                    alignment = Alignment.BottomCenter,
+                    sizeModifier = Modifier.fillMaxWidth().fillMaxHeight(fraction),
+                    shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                    panelOpacity = panelOpacity,
+                    scrimOpacity = scrimOpacity,
+                )
+            CommentPanelPosition.Top ->
+                CommentPanelAppearance(
+                    alignment = Alignment.TopCenter,
+                    sizeModifier = Modifier.fillMaxWidth().fillMaxHeight(fraction),
+                    shape = RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp),
+                    panelOpacity = panelOpacity,
+                    scrimOpacity = scrimOpacity,
+                )
+        }
+    }
+}
 
 /** 评论弹窗展示模式。 */
 enum class CommentDialogMode {
@@ -284,23 +373,35 @@ fun CommentsDialog(
             runCatching { focusRequester.requestFocus() }
         }
 
+        // 播放器模式读取用户外观设置；详情页保持居中大窗不变。
+        // 在 Dialog 内部读取而不是由调用方传入：设置改动后重开弹窗即可生效，
+        // 无需把状态提升到播放页。
+        val appearance =
+            if (mode == CommentDialogMode.Player) {
+                rememberPlayerCommentAppearance()
+            } else {
+                CommentPanelAppearance.DetailDefault
+            }
+
         Box(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.62f)),
+                    // 遮罩透明度可调；设为 0 时完全不压暗画面
+                    .background(Color.Black.copy(alpha = appearance.scrimOpacity)),
         ) {
             Surface(
                 modifier =
                     Modifier
-                        .align(Alignment.CenterEnd)
-                        .fillMaxHeight()
-                        .width(if (mode == CommentDialogMode.Player) 520.dp else 680.dp)
+                        .align(appearance.alignment)
+                        .then(appearance.sizeModifier)
                         .focusRequester(focusRequester),
-                shape = RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp),
+                shape = appearance.shape,
                 colors =
                     SurfaceDefaults.colors(
-                        containerColor = MaterialTheme.colorScheme.surface,
+                        // 背景透明度作用于容器色，文字颜色保持不透明以免可读性下降
+                        containerColor =
+                            MaterialTheme.colorScheme.surface.copy(alpha = appearance.panelOpacity),
                         contentColor = MaterialTheme.colorScheme.onSurface,
                     ),
             ) {
@@ -402,14 +503,25 @@ private fun CommentsContent(
     // 楼中楼分页不随滚动自动加载：由 footer 的「更多」按钮手动触发，避免展开后
     // 一次性拉取全部回复（也便于用户按需控制请求）
 
-    Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
+    // 横向面板（顶/底）高度有限，收紧内边距与标题字号，避免把列表挤得只剩一两行。
+    // 这是纯展示细节，从 Prefs 直接读即可，不污染 CommentUiState。
+    val horizontalPanel =
+        mode == CommentDialogMode.Player && !Prefs.playerCommentPanelPosition.isVertical
+    val contentPadding = if (horizontalPanel) 12.dp else 20.dp
+
+    Column(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
         Text(
             text = "评论${state.total.takeIf { it > 0 }?.let { " ($it)" } ?: ""}",
-            style = MaterialTheme.typography.headlineSmall,
+            style =
+                if (horizontalPanel) {
+                    MaterialTheme.typography.titleMedium
+                } else {
+                    MaterialTheme.typography.headlineSmall
+                },
         )
 
         Row(
-            modifier = Modifier.padding(vertical = 12.dp),
+            modifier = Modifier.padding(vertical = if (horizontalPanel) 6.dp else 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // 服务端通过 cursor.support_mode 声明可用排序；未声明时（空）全部展示
