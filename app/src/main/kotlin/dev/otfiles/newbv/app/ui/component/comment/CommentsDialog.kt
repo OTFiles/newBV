@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -317,6 +317,22 @@ internal fun buildCommentRows(commentList: CommentListState): List<CommentRow> =
  * @param includePreview 是否在收起态展示接口自带的预览。
  *   置顶/热评不展示预览：它们在列表顶部，展开后内容已经足够，再塞预览会让首屏过长。
  */
+/**
+ * 找到第一个「内容行」（评论卡片）的下标。
+ *
+ * 置顶/热评/普通区都有各自的标题行，标题不可聚焦。
+ * 收起输入区后需要把焦点还给列表，若指向标题会直接失败（不可聚焦），
+ * 因此必须定位到第一张真正的评论卡片。
+ *
+ * @return 第一个内容行下标；全为空时返回 -1
+ */
+internal fun List<CommentRow>.indexOfFirstNonHeader(): Int =
+    indexOfFirst { row ->
+        row is CommentRow.TopComment ||
+            row is CommentRow.HotComment ||
+            row is CommentRow.MainComment
+    }
+
 private fun MutableList<CommentRow>.addRootReplies(
     commentList: CommentListState,
     root: Comment,
@@ -499,6 +515,11 @@ private fun CommentsContent(
             CommentSort.Latest -> latestListState
         }
     val rows = remember(state.commentList) { buildCommentRows(state.commentList) }
+    // 收起输入区后把焦点还给列表：绑定到列表第一个可聚焦条目上。
+    // 这个下标只与行构成有关，提到 LazyColumn 外部算一次即可——
+    // 放在 item 的 lambda 里会被每一行重复调用，长列表下是 O(n²)。
+    val firstContentRowIndex = remember(rows) { rows.indexOfFirstNonHeader() }
+    val listFocusRequester = remember { FocusRequester() }
 
     // 评论文本展开状态：纯 UI 态，按 rpid 记录，切换排序/分页重排时保持
     val expandedCommentIds = remember { mutableStateMapOf<Long, Boolean>() }
@@ -544,6 +565,22 @@ private fun CommentsContent(
                 } else {
                     MaterialTheme.typography.headlineSmall
                 },
+        )
+
+        // 输入区放在列表上方：底部方案要求焦点穿过整屏评论卡片才能到达输入框，
+        // 评论多的时候基本无法触达。折叠态只占一行，不影响观感。
+        CommentComposer(
+            state = state,
+            mode = mode,
+            draft = draft,
+            onDraftChange = onDraftChange,
+            draftResetToken = draftResetToken,
+            onSubmit = onPostComment,
+            onCancelReply = onCancelReply,
+            onCollapseFocusTo = {
+                // 收起输入区后把焦点交回评论列表的第一项
+                runCatching { listFocusRequester.requestFocus() }
+            },
         )
 
         Row(
@@ -594,7 +631,9 @@ private fun CommentsContent(
                     state = listState,
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    items(rows, key = { it.key }) { row ->
+                    itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
+                        // 只有第一个可聚焦的评论卡片接收「收起后回到列表」的焦点
+                        val isFirstContentRow = index == firstContentRowIndex
                         when (row) {
                             CommentRow.TopHeader -> SectionHeader("置顶")
                             CommentRow.HotHeader -> SectionHeader("热门评论")
@@ -616,6 +655,14 @@ private fun CommentsContent(
                                     onToggleLike = { onToggleLike(rpid) },
                                     onReply = { onReply(comment) },
                                     onImageClick = onImageClick,
+                                    modifier =
+                                        if (isFirstContentRow) {
+                                            Modifier
+                                                .focusRequester(listFocusRequester)
+                                                .focusable()
+                                        } else {
+                                            Modifier
+                                        },
                                 )
                             }
                             is CommentRow.HotComment -> {
@@ -636,6 +683,14 @@ private fun CommentsContent(
                                     onToggleLike = { onToggleLike(rpid) },
                                     onReply = { onReply(comment) },
                                     onImageClick = onImageClick,
+                                    modifier =
+                                        if (isFirstContentRow) {
+                                            Modifier
+                                                .focusRequester(listFocusRequester)
+                                                .focusable()
+                                        } else {
+                                            Modifier
+                                        },
                                 )
                             }
                             is CommentRow.MainComment -> {
@@ -656,6 +711,14 @@ private fun CommentsContent(
                                     onToggleLike = { onToggleLike(rpid) },
                                     onReply = { onReply(comment) },
                                     onImageClick = onImageClick,
+                                    modifier =
+                                        if (isFirstContentRow) {
+                                            Modifier
+                                                .focusRequester(listFocusRequester)
+                                                .focusable()
+                                        } else {
+                                            Modifier
+                                        },
                                 )
                             }
                             is CommentRow.Reply -> {
@@ -707,15 +770,6 @@ private fun CommentsContent(
             }
         }
 
-        CommentComposer(
-            state = state,
-            mode = mode,
-            draft = draft,
-            onDraftChange = onDraftChange,
-            draftResetToken = draftResetToken,
-            onSubmit = onPostComment,
-            onCancelReply = onCancelReply,
-        )
     }
 }
 
@@ -777,6 +831,7 @@ internal fun CommentCard(
     onImageClick: (List<String>, Int) -> Unit,
     indent: Dp = 0.dp,
     previewReplyCount: Int = 0,
+    modifier: Modifier = Modifier,
 ) {
     // 记录文本在折叠状态下是否溢出；溢出过一次后按钮常驻，避免展开后回落到 false 导致按钮消失
     var isTextOverflowing by remember(comment.rpid) { mutableStateOf(false) }
@@ -788,7 +843,7 @@ internal fun CommentCard(
         }
     Column(
         modifier =
-            Modifier
+            modifier
                 .fillMaxWidth()
                 .padding(start = indent)
                 .clip(MaterialTheme.shapes.medium)
@@ -1076,18 +1131,44 @@ private fun CommentComposer(
     draftResetToken: Int,
     onSubmit: (String) -> Unit,
     onCancelReply: () -> Unit,
+    onCollapseFocusTo: () -> Unit,
 ) {
+    var expanded by remember { mutableStateOf(false) }
     var isFocused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
+    val collapsedButtonFocusRequester = remember { FocusRequester() }
 
-    // 草稿重置令牌变化：把焦点拉回输入框，方便连续发表
-    LaunchedEffect(draftResetToken) {
-        if (draftResetToken > 0) {
+    val target = state.replyTarget
+
+    // 有任何「要写点什么」的信号就自动展开并聚焦输入框：
+    // - 点了某条评论的「回复」
+    // - 草稿非空（例如上一次没发出去的残留）
+    // 这样按「回复」后可以直接打字，不需要再用方向键去找输入框。
+    LaunchedEffect(target, draft.isNotEmpty()) {
+        if (target != null || draft.isNotEmpty()) {
+            if (!expanded) expanded = true
+            // 等一帧让输入框完成布局再请求焦点
+            kotlinx.coroutines.delay(16)
             runCatching { focusRequester.requestFocus() }
         }
     }
 
-    val target = state.replyTarget
+    // 草稿重置令牌变化：发表成功后清空并重新聚焦，方便连续发言
+    LaunchedEffect(draftResetToken) {
+        if (draftResetToken > 0) {
+            expanded = true
+            kotlinx.coroutines.delay(16)
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
+
+    /** 收起输入区并把焦点交给调用方安排的落点（通常回到评论列表）。 */
+    fun collapse() {
+        expanded = false
+        // 收起后焦点交还列表，避免停留在已消失的输入框上
+        onCollapseFocusTo()
+    }
+
     val canSubmit = draft.isNotBlank() && !state.isPosting
 
     fun submit() {
@@ -1095,11 +1176,62 @@ private fun CommentComposer(
         onSubmit(draft)
     }
 
+    if (!expanded) {
+        // 折叠态：一行按钮。焦点只需从上方的排序区按一次下键即可到达，
+        // 不再需要穿过整个评论列表。
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .focusRequester(collapsedButtonFocusRequester)
+                        .touchClickable { expanded = true },
+                onClick = { expanded = true },
+                shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
+                colors =
+                    ClickableSurfaceDefaults.colors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                border =
+                    ClickableSurfaceDefaults.border(
+                        focusedBorder =
+                            Border(
+                                border =
+                                    androidx.compose.foundation.BorderStroke(
+                                        2.dp,
+                                        MaterialTheme.colorScheme.border,
+                                    ),
+                                shape = MaterialTheme.shapes.small,
+                            ),
+                    ),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Reply,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = "写评论…",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
+        return
+    }
+
     Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(top = 12.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         target?.let { replyTarget ->
@@ -1201,9 +1333,18 @@ private fun CommentComposer(
                 onClick = ::submit,
                 enabled = canSubmit,
             )
+
+            // 收起入口：草稿为空时提供，避免误触丢失已输入内容
+            if (draft.isEmpty() && !state.isPosting) {
+                DialogActionButton(
+                    text = "收起",
+                    icon = Icons.Outlined.ExpandLess,
+                    onClick = ::collapse,
+                )
+            }
         }
 
-        // 有内容时常显字数；聚焦但为空时给出快捷键提示，避免用户以为遥控器无法输入
+        // 有内容时常显字数；聚焦但为空时给出输入提示
         when {
             draft.isNotEmpty() -> {
                 Text(

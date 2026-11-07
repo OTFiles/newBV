@@ -227,4 +227,35 @@ class CommentRowsTest {
 
         assertThat(rows(state).filterIsInstance<CommentRow.Reply>()).isEmpty()
     }
+
+    @Test
+    fun `indexOfFirstNonHeader skips header rows`() {
+        val state =
+            CommentListState(
+                topReplies = listOf(comment(rpid = 1L)),
+                hots = listOf(comment(rpid = 2L)),
+                comments = listOf(comment(rpid = 3L)),
+            )
+
+        val result = rows(state)
+        val index = result.indexOfFirstNonHeader()
+
+        // 前两行是两个标题，第一个内容行必须是置顶评论卡片。
+        // 焦点只能落在可聚焦的卡片上，指向标题会静默失败。
+        assertThat(result[index]).isInstanceOf(CommentRow.TopComment::class.java)
+        assertThat(index).isEqualTo(1)
+    }
+
+    @Test
+    fun `indexOfFirstNonHeader returns -1 when only footer exists`() {
+        assertThat(rows(CommentListState()).indexOfFirstNonHeader()).isEqualTo(-1)
+    }
+
+    @Test
+    fun `indexOfFirstNonHeader finds main comment when no top or hot`() {
+        val state = CommentListState(comments = listOf(comment(rpid = 9L)))
+        val result = rows(state)
+        val index = result.indexOfFirstNonHeader()
+        assertThat(result[index]).isInstanceOf(CommentRow.MainComment::class.java)
+    }
 }
