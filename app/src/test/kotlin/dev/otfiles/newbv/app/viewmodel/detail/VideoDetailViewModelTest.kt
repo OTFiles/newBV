@@ -370,10 +370,10 @@ class VideoDetailViewModelTest {
             // 那样测不到「视频原本在哪个夹子」这条逻辑
             coEvery { Prefs.isLogin } returns true
             coEvery { videoDetailRepository.getVideoDetail(any(), any(), any()) } returns detail
-            // 实参只有 mid / rid / preferApiType 三个（type 用默认值），
-            // 多写一个 any() 会导致 mock 不命中，favoriteFolders 保持为空
+            // 该方法签名是 (mid, type, rid, preferApiType)：preferApiType 虽在最后但
+            // 没有默认值，所以调用必然传满四个实参，mock 也必须写四个 any()
             coEvery {
-                favoriteRepository.getAllFavoriteFolderMetadataList(any(), any(), any())
+                favoriteRepository.getAllFavoriteFolderMetadataList(any(), any(), any(), any())
             } returns
                 listOf(
                     fakeFolder(id = 1L, title = "收藏夹1", videoInThisFav = true),
