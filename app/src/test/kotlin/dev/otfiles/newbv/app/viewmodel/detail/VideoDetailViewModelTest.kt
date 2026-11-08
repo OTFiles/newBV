@@ -366,9 +366,14 @@ class VideoDetailViewModelTest {
             // 勾选 2 之后，delMediaIds 只能是 {1}，绝不能把 2、3 也当成待删除项——
             // 之前正是这个错误让「选了又弹回去」。
             val detail = fakeVideoDetail()
+            // fetchFavoriteFolders 只在登录状态下调用，未登录时 favoriteFolders 恒为空，
+            // 那样测不到「视频原本在哪个夹子」这条逻辑
+            coEvery { Prefs.isLogin } returns true
             coEvery { videoDetailRepository.getVideoDetail(any(), any(), any()) } returns detail
+            // 实参只有 mid / rid / preferApiType 三个（type 用默认值），
+            // 多写一个 any() 会导致 mock 不命中，favoriteFolders 保持为空
             coEvery {
-                favoriteRepository.getAllFavoriteFolderMetadataList(any(), any(), any(), any())
+                favoriteRepository.getAllFavoriteFolderMetadataList(any(), any(), any())
             } returns
                 listOf(
                     fakeFolder(id = 1L, title = "收藏夹1", videoInThisFav = true),
