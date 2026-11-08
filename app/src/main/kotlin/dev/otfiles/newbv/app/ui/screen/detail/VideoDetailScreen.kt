@@ -470,19 +470,13 @@ private fun FavoriteFolderDialog(
     onUpdate: (List<Long>) -> Unit,
 ) {
     val defaultFocusRequester = remember { FocusRequester() }
-
-    // 用「弹窗这次出现时的初始值」初始化本地选中集，且只初始化一次。
+    // 以 ViewModel 的收藏夹状态为唯一数据源，不再维护本地副本。
     //
-    // 原实现是 LaunchedEffect(selectedFolderIds)：用户点一下收藏夹 → 本地状态
-    // 立刻变化（高亮）→ 异步请求返回后 uiState 更新 → selectedFolderIds 变化 →
-    // 这个 effect 又把本地状态覆盖回服务端返回值，表现为「按了会动一下但马上恢复」。
-    //
-    // 改为 remember 初值 + mutableStateListOf：弹窗存活期间以本地状态为准，
-    // 每次点击即时生效并独立提交；关闭重开时才重新以服务端值为准。
-    val selectedIds =
-        remember {
-            androidx.compose.runtime.mutableStateListOf<Long>().apply { addAll(selectedFolderIds) }
-        }
+    // 这里经历过两次错误写法：
+    // 1) LaunchedEffect(selectedFolderIds) { 覆盖本地 } —— 异步返回后被服务端值冲掉；
+    // 2) remember 初值 —— 用户点击只更新本地，随后 ViewModel 刷新又不同步，
+    //    表现为高亮与实际收藏状态对不上。
+    // 直接读 props 最稳：点一下 → ViewModel 立即乐观更新 → 界面立刻反映。
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -516,16 +510,18 @@ private fun FavoriteFolderDialog(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     folders.forEachIndexed { _, folder ->
-                        val selected = selectedIds.contains(folder.id)
+                        val selected = folder.id in selectedFolderIds
                         // 点击逻辑只写一份：原先 onClick 与 touchClickable 各写一遍，
-                        // 触屏点击会触发两次切换（加了又删），表现为点不动
+                        // 触屏点击会触发两次切换（加了又删），表现为点不动。
+                        // 直接基于当前 props 计算目标集合，交给 ViewModel 更新。
                         val toggle: () -> Unit = {
-                            if (selectedIds.contains(folder.id)) {
-                                selectedIds.remove(folder.id)
-                            } else {
-                                selectedIds.add(folder.id)
-                            }
-                            onUpdate(selectedIds.toList())
+                            val next =
+                                if (selected) {
+                                    selectedFolderIds - folder.id
+                                } else {
+                                    selectedFolderIds + folder.id
+                                }
+                            onUpdate(next.toList())
                         }
                         androidx.tv.material3.FilterChip(
                             selected = selected,

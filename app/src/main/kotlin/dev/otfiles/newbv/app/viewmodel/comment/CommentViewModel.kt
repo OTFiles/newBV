@@ -590,10 +590,20 @@ class CommentViewModel
             }
             val commentList = state.commentLists[sort] ?: return
             val replyList = commentList.replyList(target.rootRpid)
+
+            // 回复成功后如何刷新，取决于该楼中楼此前的状态：
+            //
+            // - 从未加载过：正常拉第一页（会置 expanded = true）。
+            // - 已经加载过：**只做增量补齐**，绝不重新请求当前页。
+            //   原实现用 startRepliesLoad(page = replyList.page) 重载当前页，
+            //   而该方法的 isFirst 分支会执行 replies = appended（整表替换），
+            //   于是用户往下翻过的回复全被丢掉、列表看起来「被收起」；
+            //   若当前页 > 1 则走追加分支，把同一页数据又追加一遍，出现重复。
             if (replyList == null || !replyList.loaded) {
                 startRepliesLoad(sort = sort, aid = aid, rootRpid = target.rootRpid, page = 1)
             } else {
-                startRepliesLoad(sort = sort, aid = aid, rootRpid = target.rootRpid, page = replyList.page)
+                // 保持 expanded 不变，只标记为需要静默刷新第一页
+                startRepliesSilentRefresh(sort = sort, aid = aid, rootRpid = target.rootRpid)
             }
             // 主评论上的回复数需要更新，否则界面仍显示旧数字
             updateCommentList(sort) { list ->
@@ -731,6 +741,68 @@ class CommentViewModel
             page = 1,
             preferApiType = ApiType.Web,
         )
+
+        /**
+         * 静默刷新楼中楼第一页。
+         *
+         * 用于「刚回复成功」的场景：新回复通常出现在第一页，但也可能因为排序
+         * 落在任何位置，因此只需把第一页拉回来做**合并**，而不是替换：
+         * - 已加载的后续页保持不动
+         * - `expanded` / `page` / `hasMore` 一律保持不变
+         * - 只在末尾追加真正没见过的新条目
+         *
+         * 这样用户正在看的回复不会消失，楼中楼也不会「被收起」。
+         */
+        private fun startRepliesSilentRefresh(
+            sort: CommentSort,
+            aid: Long,
+            rootRpid: Long,
+        ) {
+            if (aid <= 0L || rootRpid <= 0L) return
+            val key = replyKey(sort, rootRpid)
+            val generation = (replyGenerations[key] ?: 0L) + 1
+            replyGenerations[key] = generation
+            replyJobs.remove(key)?.cancel()
+            replyJobs[key] =
+                viewModelScope.launch {
+                    try {
+                        val result =
+                            withTimeout(COMMENT_LOAD_TIMEOUT_MS) {
+                                commentRepository.getReplies(
+                                    aid = aid,
+                                    rootRpid = rootRpid,
+                                    page = 1,
+                                    preferApiType = ApiType.Web,
+                                )
+                            }
+                        if (!isReplyListCurrent(key, sort, aid, generation)) return@launch
+                        val current =
+                            _uiState.value.commentLists[sort]?.replyList(rootRpid)
+                                ?: return@launch
+                        val existing = current.replies.mapTo(HashSet()) { it.rpid }
+                        val fresh =
+                            result.comments.filter {
+                                it.rpid != rootRpid && it.rpid !in existing
+                            }
+                        if (fresh.isEmpty()) return@launch
+                        updateReplyList(rootRpid, sort) {
+                            it.copy(
+                                // 新回复追加到末尾；原有的回复与分页状态一律不动
+                                replies = it.replies + fresh,
+                                total = maxOf(it.total, result.total),
+                            )
+                        }
+                    } catch (error: Throwable) {
+                        // 静默刷新失败不影响用户的阅读，仅记录日志
+                        rethrowCancellation(error)
+                        logger.error(error) {
+                            "Failed to refresh replies after post: aid=$aid, rootRpid=$rootRpid"
+                        }
+                    } finally {
+                        if (replyGenerations[key] == generation) replyJobs.remove(key)
+                    }
+                }
+        }
 
         private fun startRepliesLoad(
             sort: CommentSort,

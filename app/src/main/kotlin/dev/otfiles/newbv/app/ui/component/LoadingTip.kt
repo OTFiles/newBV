@@ -3,8 +3,8 @@ package dev.otfiles.newbv.app.ui.component
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
@@ -17,6 +17,9 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import dev.otfiles.newbv.R
+
+/** 列表底部提示区的固定高度，见 [ListFooterTip] 中的说明。 */
+private val FOOTER_HEIGHT = 56.dp
 
 /**
  * 加载中提示组件。
@@ -77,10 +80,16 @@ fun ListFooterTip(
     itemsIsEmpty: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    // 用固定高度 + fillMaxWidth，而不是 fillMaxSize。
+    //
+    // 这个组件放在 LazyGrid 的最后一个跨列 item 里。fillMaxSize 会让它尝试撑满
+    // 剩余空间，item 高度随内容变化 → 每次 isLoading 切换都要重算整个网格尺寸，
+    // 而 CircularProgressIndicator 是无限循环动画，与尺寸重算叠加会在低端设备上
+    // 表现为「动画跑着跑着卡住」。固定高度后布局稳定，不再触发这轮重算。
     when {
         isLoading -> {
             Box(
-                modifier = modifier.fillMaxSize(),
+                modifier = modifier.fillMaxWidth().height(FOOTER_HEIGHT),
                 contentAlignment = Alignment.Center,
             ) {
                 LoadingTip()
@@ -89,7 +98,7 @@ fun ListFooterTip(
 
         isError -> {
             Box(
-                modifier = modifier.fillMaxSize(),
+                modifier = modifier.fillMaxWidth().height(FOOTER_HEIGHT),
                 contentAlignment = Alignment.Center,
             ) {
                 ErrorTip()

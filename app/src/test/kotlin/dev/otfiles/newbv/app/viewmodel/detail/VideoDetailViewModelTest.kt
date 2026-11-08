@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
@@ -92,6 +93,21 @@ class VideoDetailViewModelTest {
             savedStateHandle = savedStateHandle,
         )
     }
+
+    /** 构造收藏夹元数据，用于验证「只删除视频原本所在的收藏夹」。 */
+    private fun fakeFolder(
+        id: Long,
+        title: String = "收藏夹$id",
+        videoInThisFav: Boolean = false,
+    ) = FavoriteFolderMetadata(
+        id = id,
+        fid = id,
+        mid = 1L,
+        title = title,
+        cover = null,
+        videoInThisFav = videoInThisFav,
+        mediaCount = 0,
+    )
 
     private fun fakeVideoDetail(aid: Long = 1L) =
         VideoDetail(
@@ -341,6 +357,84 @@ class VideoDetailViewModelTest {
 
             assertThat(viewModel.uiState.value.isFavorite).isTrue()
             assertThat(viewModel.uiState.value.videoFavoriteFolderIds).containsExactly(1L, 2L)
+        }
+
+    @Test
+    fun `updateFavorite only removes folders the video was actually in`() =
+        runTest(testDispatcher) {
+            // 用户有 3 个收藏夹（1/2/3），视频原本只在 1 里。
+            // 勾选 2 之后，delMediaIds 只能是 {1}，绝不能把 2、3 也当成待删除项——
+            // 之前正是这个错误让「选了又弹回去」。
+            val detail = fakeVideoDetail()
+            coEvery { videoDetailRepository.getVideoDetail(any(), any(), any()) } returns detail
+            coEvery {
+                favoriteRepository.getAllFavoriteFolderMetadataList(any(), any(), any(), any())
+            } returns
+                listOf(
+                    fakeFolder(id = 1L, title = "收藏夹1", videoInThisFav = true),
+                    fakeFolder(id = 2L, title = "收藏夹2", videoInThisFav = false),
+                    fakeFolder(id = 3L, title = "收藏夹3", videoInThisFav = false),
+                )
+            coEvery { favoriteRepository.updateVideoToFavoriteFolder(any(), any(), any(), any()) } returns Unit
+
+            viewModel = createViewModel()
+            advanceUntilIdle()
+            assertThat(viewModel.uiState.value.videoFavoriteFolderIds).containsExactly(1L)
+
+            viewModel.updateFavorite(listOf(2L))
+            advanceUntilIdle()
+
+            coVerify {
+                favoriteRepository.updateVideoToFavoriteFolder(
+                    aid = any(),
+                    addMediaIds = listOf(2L),
+                    // 只删视频原本所在的 1
+                    delMediaIds = listOf(1L),
+                    preferApiType = any(),
+                )
+            }
+            assertThat(viewModel.uiState.value.videoFavoriteFolderIds).containsExactly(2L)
+        }
+
+    @Test
+    fun `updateFavorite applies optimistically before request completes`() =
+        runTest(testDispatcher) {
+            val detail = fakeVideoDetail()
+            coEvery { videoDetailRepository.getVideoDetail(any(), any(), any()) } returns detail
+            val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+            coEvery { favoriteRepository.updateVideoToFavoriteFolder(any(), any(), any(), any()) } coAnswers
+                { gate.await() }
+
+            viewModel = createViewModel()
+            advanceUntilIdle()
+
+            viewModel.updateFavorite(listOf(5L))
+            // 请求尚未返回，但界面状态应已更新
+            runCurrent()
+            assertThat(viewModel.uiState.value.videoFavoriteFolderIds).containsExactly(5L)
+
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertThat(viewModel.uiState.value.videoFavoriteFolderIds).containsExactly(5L)
+        }
+
+    @Test
+    fun `updateFavorite rolls back optimistic state on failure`() =
+        runTest(testDispatcher) {
+            val detail = fakeVideoDetail()
+            coEvery { videoDetailRepository.getVideoDetail(any(), any(), any()) } returns detail
+            coEvery { favoriteRepository.updateVideoToFavoriteFolder(any(), any(), any(), any()) } throws
+                RuntimeException("boom")
+
+            viewModel = createViewModel()
+            advanceUntilIdle()
+
+            viewModel.updateFavorite(listOf(9L))
+            advanceUntilIdle()
+
+            // 失败必须回滚，否则界面显示已收藏但服务端没有
+            assertThat(viewModel.uiState.value.videoFavoriteFolderIds).isEmpty()
+            assertThat(viewModel.uiState.value.isFavorite).isFalse()
         }
 
     @Test

@@ -354,24 +354,42 @@ class VideoDetailViewModel
          */
         fun updateFavorite(folderIds: List<Long>) {
             val currentDetail = _uiState.value.detail ?: return
-            val currentFolders = _uiState.value.favoriteFolders
+            // delMediaIds 必须是「视频当前所在的收藏夹」，而不是「用户的所有收藏夹」。
+            //
+            // 原先写成 favoriteFolders.map { it.id } - folderIds，含义变成
+            // 「把视频从除目标之外的所有收藏夹里删掉」——用户点一下某个收藏夹，
+            // 其余收藏夹全被当成待删除项提交，服务端把视频从这些夹子移出，
+            // 紧接着刷新回来的状态就不是用户点的那份，表现为「选了又弹回去」。
+            val previousFolderIds = _uiState.value.videoFavoriteFolderIds
+            val targetIds = folderIds.toSet()
+
+            // 乐观更新：点击立刻反映到界面。
+            // 请求往返通常几百毫秒，等待期间界面若不动，用户会以为没点上而重复点，
+            // 这正是「按了会动一下又弹回去」观感的一部分。
+            _uiState.update {
+                it.copy(
+                    isFavorite = targetIds.isNotEmpty(),
+                    videoFavoriteFolderIds = targetIds,
+                )
+            }
+
             viewModelScope.launch {
                 runCatching {
                     favoriteRepository.updateVideoToFavoriteFolder(
                         aid = currentDetail.aid,
                         addMediaIds = folderIds,
-                        delMediaIds = currentFolders.map { it.id } - folderIds.toSet(),
+                        delMediaIds = previousFolderIds - targetIds,
                         preferApiType = prefApiType(),
                     )
-                }.onSuccess {
-                    _uiState.update {
-                        it.copy(
-                            isFavorite = folderIds.isNotEmpty(),
-                            videoFavoriteFolderIds = folderIds.toSet(),
-                        )
-                    }
                 }.onFailure { error ->
                     logger.error(error) { "Failed to update favorite" }
+                    // 失败时回滚到请求前的状态，避免界面显示成功但服务端没变
+                    _uiState.update {
+                        it.copy(
+                            isFavorite = previousFolderIds.isNotEmpty(),
+                            videoFavoriteFolderIds = previousFolderIds,
+                        )
+                    }
                     _uiEffect.emit(
                         VideoDetailUiEffect.ShowToast("收藏失败: ${error.message ?: "未知错误"}"),
                     )
