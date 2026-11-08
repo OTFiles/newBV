@@ -378,7 +378,8 @@ class VideoDetailViewModel
                     favoriteRepository.updateVideoToFavoriteFolder(
                         aid = currentDetail.aid,
                         addMediaIds = folderIds,
-                        delMediaIds = previousFolderIds - targetIds,
+                        // Set 差集结果是 Set，接口要求 List
+                        delMediaIds = (previousFolderIds - targetIds).toList(),
                         preferApiType = prefApiType(),
                     )
                 }.onFailure { error ->

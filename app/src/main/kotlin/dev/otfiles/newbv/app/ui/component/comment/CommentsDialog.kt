@@ -1076,10 +1076,18 @@ private fun DialogActionButton(
         onClick = onClick,
         enabled = enabled,
         shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
+        // 必须显式给出 focused* 颜色。
+        // 默认 colors(...) 只配了非聚焦态，聚焦时容器色不变、文字色也不变，
+        // 结果就是「焦点移过去了但完全看不出来」——用户会以为焦点丢了，
+        // 或者以为按键没生效（表现为要按确认键才“突然”出现在某处）。
         colors =
             ClickableSurfaceDefaults.colors(
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                focusedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                focusedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                pressedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                pressedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ),
     ) {
         Row(
@@ -1170,10 +1178,16 @@ private fun CommentComposer(
             modifier = Modifier.focusRequester(collapsedButtonFocusRequester),
             onClick = { expanded = true },
             shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
+            // 未聚焦用 surfaceVariant，聚焦才切到 primaryContainer：
+            // 若两者同色，聚焦时只剩下 2dp 边框变化，深色主题下几乎看不出来。
             colors =
                 ClickableSurfaceDefaults.colors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    focusedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    focusedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    pressedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    pressedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 ),
             border =
                 ClickableSurfaceDefaults.border(
@@ -1239,10 +1253,23 @@ private fun CommentComposer(
                 modifier = Modifier.weight(1f),
                 onClick = { runCatching { focusRequester.requestFocus() } },
                 shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
+                // 焦点实际落在内部的 BasicTextField 上，Surface 自身并不处于 focused 态，
+                // 因此不能依赖 ClickableSurfaceDefaults 的 focused* 颜色，
+                // 改为用 isFocused 直接驱动容器色，保证「光标在输入框里」这件事可见。
                 colors =
                     ClickableSurfaceDefaults.colors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        containerColor =
+                            if (isFocused) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            },
+                        contentColor =
+                            if (isFocused) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
                     ),
                 border =
                     ClickableSurfaceDefaults.border(
@@ -1251,6 +1278,15 @@ private fun CommentComposer(
                                 border =
                                     androidx.compose.foundation.BorderStroke(
                                         2.dp,
+                                        MaterialTheme.colorScheme.border,
+                                    ),
+                                shape = MaterialTheme.shapes.small,
+                            ),
+                        border =
+                            Border(
+                                border =
+                                    androidx.compose.foundation.BorderStroke(
+                                        if (isFocused) 2.dp else 0.dp,
                                         MaterialTheme.colorScheme.border,
                                     ),
                                 shape = MaterialTheme.shapes.small,
