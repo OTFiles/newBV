@@ -374,8 +374,14 @@ class CommentViewModel
                                 comments = it.comments + appended,
                                 page = page.page,
                                 total = page.total,
-                                // 若本页全部为重复项则停止分页，避免服务端重叠导致死循环
-                                hasMore = page.hasMore && appended.isNotEmpty(),
+                                // 若本页全部为重复项则停止分页，避免服务端重叠导致死循环。
+                                // 游标通道额外要求下一游标存在：hasMore 为 true 但没有 offset
+                                // 时会退化成用同一个游标反复请求，最终被服务端判为错误，
+                                // 界面上就成了「评论已经加载完，却提示加载失败」。
+                                hasMore =
+                                    page.hasMore &&
+                                        appended.isNotEmpty() &&
+                                        (!it.useCursor || page.paginationOffset != null),
                                 loadingMore = false,
                                 loadMoreError = false,
                                 replyPreviews = it.replyPreviews + page.replyPreviews,
@@ -784,12 +790,21 @@ class CommentViewModel
                             result.comments.filter {
                                 it.rpid != rootRpid && it.rpid !in existing
                             }
-                        if (fresh.isEmpty()) return@launch
                         updateReplyList(rootRpid, sort) {
                             it.copy(
-                                // 新回复追加到末尾；原有的回复与分页状态一律不动
-                                replies = it.replies + fresh,
+                                // 新回复插到**开头**而不是末尾：
+                                // B 站楼中楼通常把最新的排在最前，插到末尾用户根本看不到
+                                // （需要一路滚到底），主观感受就是「回复没发出去」。
+                                replies = fresh + it.replies,
+                                // 即使 fresh 为空也要把 total 同步过来，
+                                // 否则回复数会一直停在旧值
                                 total = maxOf(it.total, result.total),
+                                // 服务器可能在此之前并未标记为已展开，这里补上，
+                                // 保证回复区一定可见
+                                expanded = true,
+                                loaded = true,
+                                initialLoading = false,
+                                initialError = false,
                             )
                         }
                     } catch (error: Throwable) {

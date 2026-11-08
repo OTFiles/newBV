@@ -733,6 +733,109 @@ class CommentViewModelTest {
             assertThat(viewModel.isSortSupported(CommentSort.Mixed)).isFalse()
         }
 
+    @Test
+    fun `cursor channel stops paging when next offset is missing`() =
+        runTest(dispatcher) {
+            // 服务端说还有更多（is_end=false）却没给 next_offset。
+            // 若继续翻页就会用同一个游标反复请求，最终报错，
+            // 界面表现为「评论已经加载完却提示加载失败」。
+            val first = comment(rpid = 1L)
+            coEvery { repository.getCommentsByCursor(100L, any(), any()) } returns
+                CommentPage(
+                    comments = listOf(first),
+                    page = 1,
+                    total = 99,
+                    hasMore = true,
+                    paginationOffset = """{"type":3,"direction":1,"Data":{"cursor":9}}""",
+                )
+            viewModel.load(100L)
+            advanceUntilIdle()
+            assertThat(viewModel.uiState.value.hasMore).isTrue()
+
+            // 第二页：hasMore=true 但没有 offset
+            coEvery { repository.getCommentsByCursor(100L, any(), any()) } returns
+                CommentPage(
+                    comments = listOf(comment(rpid = 2L)),
+                    page = 1,
+                    total = 99,
+                    hasMore = true,
+                    paginationOffset = null,
+                )
+            viewModel.loadMoreComments()
+            advanceUntilIdle()
+
+            // 没有下一页游标时必须停止，否则会无限重试同一个游标
+            assertThat(viewModel.uiState.value.hasMore).isFalse()
+            assertThat(viewModel.uiState.value.loadMoreError).isFalse()
+        }
+
+    @Test
+    fun `reply refresh puts new reply at the top`() =
+        runTest(dispatcher) {
+            // 新回复必须出现在列表开头，否则用户要滚到底才能看到，
+            // 主观感受就是「回复没发出去」。
+            val root = comment(rpid = 1L, replyCount = 1)
+            coEvery { repository.getComments(any(), any(), any(), any(), any()) } returns
+                page(listOf(root), page = 1, total = 1, hasMore = false)
+            coEvery { repository.getReplies(any(), any(), any(), any(), any()) } returns
+                page(listOf(comment(rpid = 11L, rootRpid = 1L)), page = 1, total = 1, hasMore = false)
+            coEvery { repository.postComment(any(), any(), any(), any()) } returns
+                CommentAddResult(code = 0, message = "0", rpid = 99L)
+
+            viewModel.load(100L)
+            advanceUntilIdle()
+            viewModel.toggleReplies(1L)
+            advanceUntilIdle()
+            assertThat(viewModel.uiState.value.commentList.replyList(1L)?.replies?.map { it.rpid })
+                .containsExactly(11L)
+
+            // 刷新返回时多出一条新回复
+            coEvery { repository.getReplies(any(), any(), any(), any(), any()) } returns
+                page(
+                    listOf(
+                        comment(rpid = 99L, rootRpid = 1L),
+                        comment(rpid = 11L, rootRpid = 1L),
+                    ),
+                    page = 1,
+                    total = 2,
+                    hasMore = false,
+                )
+            viewModel.replyTo(root)
+            viewModel.postComment("回复内容")
+            advanceUntilIdle()
+
+            val replies = viewModel.uiState.value.commentList.replyList(1L)?.replies.orEmpty()
+            assertThat(replies.first().rpid).isEqualTo(99L)
+            // 原有回复不能被丢掉
+            assertThat(replies.map { it.rpid }).contains(11L)
+        }
+
+    @Test
+    fun `reply refresh keeps expanded state when new reply is empty`() =
+        runTest(dispatcher) {
+            // 服务端尚未把新回复返回时，也不能把楼中楼收起或清空
+            val root = comment(rpid = 1L, replyCount = 1)
+            coEvery { repository.getComments(any(), any(), any(), any(), any()) } returns
+                page(listOf(root), page = 1, total = 1, hasMore = false)
+            coEvery { repository.getReplies(any(), any(), any(), any(), any()) } returns
+                page(listOf(comment(rpid = 11L, rootRpid = 1L)), page = 1, total = 1, hasMore = false)
+            coEvery { repository.postComment(any(), any(), any(), any()) } returns
+                CommentAddResult(code = 0, message = "0", rpid = 99L)
+
+            viewModel.load(100L)
+            advanceUntilIdle()
+            viewModel.toggleReplies(1L)
+            advanceUntilIdle()
+
+            viewModel.replyTo(root)
+            viewModel.postComment("内容")
+            advanceUntilIdle()
+
+            val replyList = viewModel.uiState.value.commentList.replyList(1L)
+            assertThat(replyList?.expanded).isTrue()
+            assertThat(replyList?.replies?.map { it.rpid }).containsExactly(11L)
+        }
+
     private fun page(
         comments: List<Comment>,
         page: Int,

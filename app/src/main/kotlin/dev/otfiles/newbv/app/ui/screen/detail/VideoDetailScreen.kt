@@ -526,7 +526,11 @@ private fun FavoriteFolderDialog(
                         androidx.tv.material3.FilterChip(
                             selected = selected,
                             onClick = toggle,
-                            modifier = Modifier.touchClickable(onClick = toggle),
+                            // 不要再叠 touchClickable：它内部会额外 attach 一个
+                            // FocusRequester，而 FilterChip 自身已经是可聚焦节点，
+                            // 于是同一个按钮上出现两个焦点——方向键来回跳、
+                            // 其中一个还是无样式的白色背景，文字糊成一片。
+                            // tv-material3 的 FilterChip 本身已支持触屏点击。
                             // 选中态必须显式给容器色与文字色：
                             // 默认 selectedContainerColor 是浅色系，深色主题下
                             // 文字仍用 onSurface（浅色），叠在一起就看不清名字了

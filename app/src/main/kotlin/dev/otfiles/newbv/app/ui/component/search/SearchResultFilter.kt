@@ -98,7 +98,8 @@ fun SearchResultFilter(
                             FilterChip(
                                 selected = currentOrder == order,
                                 onClick = { currentOrder = order },
-                                modifier = Modifier.touchClickable(onClick = { currentOrder = order }),
+                                // 不叠 touchClickable：会额外创建 FocusRequester，
+                                // 与 FilterChip 自身的焦点节点冲突，出现双焦点
                                 colors =
                                     FilterChipDefaults.colors(
                                         selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -133,7 +134,7 @@ fun SearchResultFilter(
                             FilterChip(
                                 selected = currentDuration == duration,
                                 onClick = { currentDuration = duration },
-                                modifier = Modifier.touchClickable(onClick = { currentDuration = duration }),
+                                // 同上：避免与 FilterChip 自身的焦点节点重复
                                 colors =
                                     FilterChipDefaults.colors(
                                         selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
