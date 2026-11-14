@@ -2,6 +2,7 @@ package dev.otfiles.newbv.biliapi.repositories
 
 import com.google.common.truth.Truth.assertThat
 import dev.otfiles.newbv.biliapi.entity.ApiType
+import dev.otfiles.newbv.biliapi.entity.comment.CommentTopType
 import dev.otfiles.newbv.biliapi.http.BiliHttpApi
 import dev.otfiles.newbv.biliapi.http.entity.BiliResponse
 import io.mockk.coEvery
@@ -296,6 +297,127 @@ class CommentRepositoryUnitTest {
 
             assertThat(exception.message).isEqualTo("评论点赞失败")
         }
+
+    // ------------------------------------------------------------------
+    // getCommentsByCursor：置顶来源标注
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `cursor channel tags each top reply with its source`() =
+        runTest {
+            // data.top 下的三个 key 各代表一种置顶来源，UI 要显示不同角标。
+            // 评论对象本身没有置顶字段，只能靠解析方按来源 key 打标。
+            val data =
+                json.parseToJsonElement(
+                    buildJsonObject {
+                        put(
+                            "cursor",
+                            buildJsonObject {
+                                put("is_end", true)
+                                put("all_count", 3L)
+                            },
+                        )
+                        put("replies", buildJsonArray { })
+                        put(
+                            "top",
+                            buildJsonObject {
+                                put("admin", topCommentJson(rpid = 1L, msg = "管理员置顶"))
+                                put("upper", topCommentJson(rpid = 2L, msg = "UP主置顶"))
+                                put("vote", topCommentJson(rpid = 3L, msg = "投票置顶"))
+                            },
+                        )
+                    },
+                ).jsonObject
+            coEvery { BiliHttpApi.getVideoCommentsByCursor(any(), any(), any(), any()) } returns
+                BiliResponse(code = 0, message = "", data = data)
+
+            val result = repository.getCommentsByCursor(aid = AID, mode = 3)
+
+            // 顺序固定为 管理员 → UP 主 → 投票
+            assertThat(result.topReplies.map { it.topType })
+                .containsExactly(CommentTopType.Admin, CommentTopType.Upper, CommentTopType.Vote)
+                .inOrder()
+            assertThat(result.topReplies.map { it.rpid }).containsExactly(1L, 2L, 3L).inOrder()
+        }
+
+    @Test
+    fun `cursor channel keeps only first source when same rpid is topped twice`() =
+        runTest {
+            // 同一条评论既被管理员也被 UP 主置顶时应只出现一次，且以管理员优先
+            val data =
+                json.parseToJsonElement(
+                    buildJsonObject {
+                        put(
+                            "cursor",
+                            buildJsonObject {
+                                put("is_end", true)
+                                put("all_count", 1L)
+                            },
+                        )
+                        put("replies", buildJsonArray { })
+                        put(
+                            "top",
+                            buildJsonObject {
+                                put("admin", topCommentJson(rpid = 7L, msg = "同一条"))
+                                put("upper", topCommentJson(rpid = 7L, msg = "同一条"))
+                            },
+                        )
+                    },
+                ).jsonObject
+            coEvery { BiliHttpApi.getVideoCommentsByCursor(any(), any(), any(), any()) } returns
+                BiliResponse(code = 0, message = "", data = data)
+
+            val result = repository.getCommentsByCursor(aid = AID, mode = 3)
+
+            assertThat(result.topReplies).hasSize(1)
+            assertThat(result.topReplies.single().topType).isEqualTo(CommentTopType.Admin)
+        }
+
+    @Test
+    fun `normal comments have no top type`() =
+        runTest {
+            val data =
+                json.parseToJsonElement(
+                    buildJsonObject {
+                        put(
+                            "cursor",
+                            buildJsonObject {
+                                put("is_end", true)
+                                put("all_count", 1L)
+                            },
+                        )
+                        put("replies", buildJsonArray { add(topCommentJson(rpid = 9L, msg = "普通")) })
+                    },
+                ).jsonObject
+            coEvery { BiliHttpApi.getVideoCommentsByCursor(any(), any(), any(), any()) } returns
+                BiliResponse(code = 0, message = "", data = data)
+
+            val result = repository.getCommentsByCursor(aid = AID, mode = 3)
+
+            assertThat(result.comments).hasSize(1)
+            assertThat(result.comments.single().topType).isNull()
+        }
+
+    /** 构造一条可用于 data.top 的评论对象。 */
+    private fun topCommentJson(
+        rpid: Long,
+        msg: String,
+    ) = buildJsonObject {
+        put("rpid", rpid)
+        put("oid", AID)
+        put("mid", 5000L + rpid)
+        put("ctime", 1234567890L)
+        put("like", 1L)
+        put(
+            "member",
+            buildJsonObject {
+                put("mid", 5000L + rpid)
+                put("uname", "置顶用户$rpid")
+                put("avatar", "")
+            },
+        )
+        put("content", buildJsonObject { put("message", msg) })
+    }
 
     // ------------------------------------------------------------------
     // 测试夹具

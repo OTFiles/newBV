@@ -8,6 +8,7 @@ import bilibili.main.community.reply.v1.mainListReq
 import dev.otfiles.newbv.biliapi.entity.ApiType
 import dev.otfiles.newbv.biliapi.entity.comment.Comment
 import dev.otfiles.newbv.biliapi.entity.comment.CommentPage
+import dev.otfiles.newbv.biliapi.entity.comment.CommentTopType
 import dev.otfiles.newbv.biliapi.http.BiliHttpApi
 import dev.otfiles.newbv.biliapi.http.entity.comment.CommentAddResult
 import kotlinx.serialization.json.JsonArray
@@ -136,13 +137,26 @@ class CommentRepository(
                 .filter { it.rpid > 0L }
                 .distinctBy { it.rpid }
 
-        // 置顶：data.top.{admin,upper,vote}，按「管理员 → UP 主 → 投票」顺序拼
+        // 置顶：data.top.{admin,upper,vote}，按「管理员 → UP 主 → 投票」顺序拼。
+        // 每个来源要打上对应的 topType：评论对象本身没有置顶字段，
+        // 只能由解析方按它来自哪个 key 来标注，UI 才能显示正确的角标。
         val topObject = data["top"] as? JsonObject
+        val topSources =
+            listOf(
+                "admin" to CommentTopType.Admin,
+                "upper" to CommentTopType.Upper,
+                "vote" to CommentTopType.Vote,
+            )
         val topReplies =
-            listOf("admin", "upper", "vote")
-                .mapNotNull { topObject?.get(it) as? JsonObject }
-                .map { Comment.fromJson(it, oid = aid, defaultType = 1, upperMid = upperMid) }
-                .filter { it.rpid > 0L }
+            topSources
+                .mapNotNull { (key, type) ->
+                    (topObject?.get(key) as? JsonObject)?.let { obj ->
+                        // 同一个 rpid 可能同时被多个来源置顶，取先出现的（管理员优先）
+                        Comment
+                            .fromJson(obj, oid = aid, defaultType = 1, upperMid = upperMid)
+                            .copy(topType = type)
+                    }
+                }.filter { it.rpid > 0L }
                 .distinctBy { it.rpid }
 
         val supportedModes =

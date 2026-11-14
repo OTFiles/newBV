@@ -404,6 +404,17 @@ fun VideoPlayerScreen(
             aid = uiState.aid,
             mode = CommentDialogMode.Player,
             viewModel = commentViewModel,
+            onUserClick = { mid, name ->
+                // 进用户主页属于离开播放器的导航，先关评论并恢复播放状态，
+                // 返回播放器时才不会停在「评论打开时被暂停」的状态
+                showCommentsDialog = false
+                if (resumeAfterComments) {
+                    playerViewModel.resumePlayback()
+                    danmakuViewModel.play()
+                    resumeAfterComments = false
+                }
+                navController.navigate(UserSpaceRoute(mid = mid, name = name))
+            },
             onDismiss = {
                 showCommentsDialog = false
                 if (resumeAfterComments) {

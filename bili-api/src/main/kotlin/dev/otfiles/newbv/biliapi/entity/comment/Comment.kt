@@ -9,6 +9,32 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
 /**
+ * 评论的置顶来源。
+ *
+ * B 站评论区的置顶分三种，`data.top.{admin,upper,vote}` 各对应一种：
+ * - [Admin]：管理员置顶（通常是社区公告类）
+ * - [Upper]：UP 主置顶（最常见）
+ * - [Vote]：投票置顶
+ *
+ * 界面需要据此显示不同的角标，不能一律写「置顶」，否则用户无法判断
+ * 这条是作者自己置顶的还是官方挂上去的。
+ */
+@Serializable
+enum class CommentTopType(
+    val displayName: String,
+) {
+    Admin("管理员置顶"),
+    Upper("UP主置顶"),
+    Vote("投票置顶"),
+    ;
+
+    companion object {
+        /** 从未置顶的普通评论。 */
+        val None: CommentTopType? = null
+    }
+}
+
+/**
  * 视频评论数据。
  *
  * 评论和楼中楼使用同一个模型，通过 [parentRpid] 与 [rootRpid] 表示层级关系。
@@ -31,6 +57,13 @@ data class Comment(
     val replyCount: Int,
     val isLiked: Boolean,
     val isUp: Boolean,
+    /**
+     * 置顶来源，null 表示普通评论。
+     *
+     * 注意它不由单条评论 JSON 决定（评论对象里没有该字段），
+     * 而是在解析 `data.top` 时由解析方按来源显式赋值。
+     */
+    val topType: CommentTopType? = null,
 ) {
     /** 从 B 站 Web/App HTTP 评论 JSON 转换为统一模型。 */
     companion object {

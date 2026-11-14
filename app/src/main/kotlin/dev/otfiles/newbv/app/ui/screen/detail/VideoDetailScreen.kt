@@ -457,6 +457,11 @@ private fun VideoDetailContent(
             mode = CommentDialogMode.Detail,
             viewModel = commentViewModel,
             onDismiss = { showCommentsDialog = false },
+            onUserClick = { mid, name ->
+                // 关闭评论弹窗再跳转：两个 Dialog 叠在一起时焦点归属会很乱
+                showCommentsDialog = false
+                navController.navigate(UserSpaceRoute(mid = mid, name = name))
+            },
         )
     }
 }

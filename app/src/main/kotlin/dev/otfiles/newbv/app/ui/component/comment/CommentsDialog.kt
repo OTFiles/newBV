@@ -369,6 +369,8 @@ private fun MutableList<CommentRow>.addRootReplies(
  * @param mode 弹窗展示模式
  * @param viewModel 评论状态 ViewModel
  * @param onDismiss 关闭回调
+ * @param onUserClick 点击评论者头像/用户名，进入其主页。默认不处理，
+ *   便于预览与测试；正式调用方应传入导航实现。
  */
 @Composable
 fun CommentsDialog(
@@ -376,6 +378,7 @@ fun CommentsDialog(
     mode: CommentDialogMode,
     viewModel: CommentViewModel,
     onDismiss: () -> Unit,
+    onUserClick: (mid: Long, name: String) -> Unit = { _, _ -> },
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -467,6 +470,7 @@ fun CommentsDialog(
                         imageViewerPictures = pictures
                         imageViewerIndex = index
                     },
+                    onUserClick = onUserClick,
                 )
             }
 
@@ -500,6 +504,7 @@ private fun CommentsContent(
     onDraftChange: (String) -> Unit,
     draftResetToken: Int,
     onImageClick: (List<String>, Int) -> Unit,
+    onUserClick: (mid: Long, name: String) -> Unit = { _, _ -> },
 ) {
     // 热门与最新各自维护滚动状态：共用一个 LazyListState 时，Compose 会按首个可见 item 的
     // key 在新列表中重新定位，导致切换排序后上一条排序的评论被锚定在顶部
@@ -668,6 +673,7 @@ private fun CommentsContent(
                                     onToggleLike = { onToggleLike(rpid) },
                                     onReply = { onReply(comment) },
                                     onImageClick = onImageClick,
+                                    onUserClick = onUserClick,
                                     firstActionFocusRequester =
                                         listFocusRequester.takeIf { isFirstContentRow },
                                 )
@@ -690,6 +696,7 @@ private fun CommentsContent(
                                     onToggleLike = { onToggleLike(rpid) },
                                     onReply = { onReply(comment) },
                                     onImageClick = onImageClick,
+                                    onUserClick = onUserClick,
                                     firstActionFocusRequester =
                                         listFocusRequester.takeIf { isFirstContentRow },
                                 )
@@ -712,6 +719,7 @@ private fun CommentsContent(
                                     onToggleLike = { onToggleLike(rpid) },
                                     onReply = { onReply(comment) },
                                     onImageClick = onImageClick,
+                                    onUserClick = onUserClick,
                                     firstActionFocusRequester =
                                         listFocusRequester.takeIf { isFirstContentRow },
                                 )
@@ -727,6 +735,7 @@ private fun CommentsContent(
                                     onToggleLike = { onToggleLike(rpid) },
                                     onReply = { onReply(comment) },
                                     onImageClick = onImageClick,
+                                    onUserClick = onUserClick,
                                 )
                             }
                             is CommentRow.ReplyFooter -> {
@@ -782,6 +791,7 @@ private fun ReplyCommentCard(
     onToggleLike: () -> Unit,
     onReply: () -> Unit,
     onImageClick: (List<String>, Int) -> Unit,
+    onUserClick: (mid: Long, name: String) -> Unit = { _, _ -> },
 ) {
     CommentCard(
         comment = comment,
@@ -796,6 +806,7 @@ private fun ReplyCommentCard(
         onToggleLike = onToggleLike,
         onReply = onReply,
         onImageClick = onImageClick,
+        onUserClick = onUserClick,
         indent = REPLY_INDENT,
     )
 }
@@ -828,6 +839,7 @@ internal fun CommentCard(
     previewReplyCount: Int = 0,
     modifier: Modifier = Modifier,
     firstActionFocusRequester: FocusRequester? = null,
+    onUserClick: (mid: Long, name: String) -> Unit = { _, _ -> },
 ) {
     // 记录文本在折叠状态下是否溢出；溢出过一次后按钮常驻，避免展开后回落到 false 导致按钮消失
     var isTextOverflowing by remember(comment.rpid) { mutableStateOf(false) }
@@ -847,25 +859,79 @@ internal fun CommentCard(
                 .padding(12.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            AsyncImage(
-                model = comment.avatar,
-                contentDescription = "${comment.userName}头像",
-                modifier = Modifier.size(if (compact) 32.dp else 40.dp).clip(MaterialTheme.shapes.small),
-                contentScale = ContentScale.Crop,
-            )
+            // 头像可点击进入该用户主页；作者主页是评论区最常见的跳转目标
+            Surface(
+                onClick = { onUserClick(comment.mid, comment.userName) },
+                shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
+                colors =
+                    ClickableSurfaceDefaults.colors(
+                        containerColor = Color.Transparent,
+                        contentColor = Color.Unspecified,
+                        focusedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        pressedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    ),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+            ) {
+                AsyncImage(
+                    model = comment.avatar,
+                    contentDescription = "${comment.userName}头像",
+                    modifier = Modifier.size(if (compact) 32.dp else 40.dp).clip(MaterialTheme.shapes.small),
+                    contentScale = ContentScale.Crop,
+                )
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        modifier = Modifier.weight(1f),
-                        text =
-                            buildString {
-                                append(comment.userName)
-                                if (comment.level > 0) append("  Lv.${comment.level}")
-                                if (comment.isUp) append("  UP主")
-                            },
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    // 用户名单独一个可点击区域
+                    Surface(
+                        onClick = { onUserClick(comment.mid, comment.userName) },
+                        shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
+                        colors =
+                            ClickableSurfaceDefaults.colors(
+                                containerColor = Color.Transparent,
+                                contentColor = MaterialTheme.colorScheme.primary,
+                                focusedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                focusedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                pressedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                pressedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            ),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+                    ) {
+                        Text(
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                            text = comment.userName,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+
+                    // 等级与 UP 标改为独立胶囊：拼进用户名字符串时，
+                    // 「某用户名 Lv.5 UP主」会被读成名字的一部分，尤其在
+                    // 用户名本身带数字/英文时完全分不清哪个是名字、哪个是等级。
+                    if (comment.level > 0) {
+                        CommentBadge(
+                            text = "Lv.${comment.level}",
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (comment.isUp) {
+                        CommentBadge(
+                            text = "UP主",
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = Color.White,
+                        )
+                    }
+                    if (comment.topType != null) {
+                        CommentBadge(
+                            text = comment.topType.displayName,
+                            containerColor = MaterialTheme.colorScheme.secondary,
+                            contentColor = MaterialTheme.colorScheme.onSecondary,
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.weight(1f))
                     val timeText = remember(comment.ctime) { comment.ctime.formatCommentTime() }
                     if (timeText.isNotEmpty()) {
                         Text(
@@ -1050,6 +1116,40 @@ private fun SortButton(
             ),
     ) {
         Text(sort.displayName, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+    }
+}
+
+/**
+ * 评论卡片上的小徽标（等级 / UP主 / 置顶）。
+ *
+ * 用独立的圆角背景与用户名分隔开。原先等级和 UP 标是拼进用户名文本里的
+ * （`"$name  Lv.5  UP主"`），当用户名本身带数字或英文时完全分不清边界，
+ * 视觉上读成一长串。
+ *
+ * @param text 徽标文字
+ * @param containerColor 背景色
+ * @param contentColor 文字色
+ */
+@Composable
+private fun CommentBadge(
+    text: String,
+    containerColor: Color,
+    contentColor: Color,
+) {
+    Box(
+        modifier =
+            Modifier
+                .padding(start = 4.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(containerColor)
+                .padding(horizontal = 5.dp, vertical = 1.dp),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = contentColor,
+            maxLines = 1,
+        )
     }
 }
 
