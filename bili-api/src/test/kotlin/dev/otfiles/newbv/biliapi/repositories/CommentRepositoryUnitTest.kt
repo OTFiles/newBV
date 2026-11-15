@@ -402,22 +402,23 @@ class CommentRepositoryUnitTest {
     private fun topCommentJson(
         rpid: Long,
         msg: String,
-    ) = buildJsonObject {
-        put("rpid", rpid)
-        put("oid", AID)
-        put("mid", 5000L + rpid)
-        put("ctime", 1234567890L)
-        put("like", 1L)
-        put(
-            "member",
-            buildJsonObject {
-                put("mid", 5000L + rpid)
-                put("uname", "置顶用户$rpid")
-                put("avatar", "")
-            },
-        )
-        put("content", buildJsonObject { put("message", msg) })
-    }
+    ): JsonObject =
+        buildJsonObject {
+            put("rpid", rpid)
+            put("oid", AID)
+            put("mid", 5000L + rpid)
+            put("ctime", 1234567890L)
+            put("like", 1L)
+            put(
+                "member",
+                buildJsonObject {
+                    put("mid", 5000L + rpid)
+                    put("uname", "置顶用户$rpid")
+                    put("avatar", "")
+                },
+            )
+            put("content", buildJsonObject { put("message", msg) })
+        }
 
     // ------------------------------------------------------------------
     // 测试夹具

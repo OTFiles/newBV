@@ -923,9 +923,12 @@ internal fun CommentCard(
                             contentColor = Color.White,
                         )
                     }
-                    if (comment.topType != null) {
+                    // 先取到局部变量再判空：topType 是 bili-api 模块里声明的
+                    // public 属性，跨模块无法智能转换（SMART_CAST_IMPOSSIBLE）
+                    val topType = comment.topType
+                    if (topType != null) {
                         CommentBadge(
-                            text = comment.topType.displayName,
+                            text = topType.displayName,
                             containerColor = MaterialTheme.colorScheme.secondary,
                             contentColor = MaterialTheme.colorScheme.onSecondary,
                         )
