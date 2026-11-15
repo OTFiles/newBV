@@ -12,10 +12,14 @@ import io.mockk.unmockkObject
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -317,13 +321,13 @@ class CommentRepositoryUnitTest {
                                 put("all_count", 3L)
                             },
                         )
-                        put("replies", buildJsonArray { })
+                        putJsonArray("replies") { }
                         put(
                             "top",
                             buildJsonObject {
-                                put("admin", topCommentJson(rpid = 1L, msg = "管理员置顶"))
-                                put("upper", topCommentJson(rpid = 2L, msg = "UP主置顶"))
-                                put("vote", topCommentJson(rpid = 3L, msg = "投票置顶"))
+                                putJsonObject("admin") { mergeTopComment(rpid = 1L, msg = "管理员置顶") }
+                                putJsonObject("upper") { mergeTopComment(rpid = 2L, msg = "UP主置顶") }
+                                putJsonObject("vote") { mergeTopComment(rpid = 3L, msg = "投票置顶") }
                             },
                         )
                     },
@@ -354,12 +358,12 @@ class CommentRepositoryUnitTest {
                                 put("all_count", 1L)
                             },
                         )
-                        put("replies", buildJsonArray { })
+                        putJsonArray("replies") { }
                         put(
                             "top",
                             buildJsonObject {
-                                put("admin", topCommentJson(rpid = 7L, msg = "同一条"))
-                                put("upper", topCommentJson(rpid = 7L, msg = "同一条"))
+                                putJsonObject("admin") { mergeTopComment(rpid = 7L, msg = "同一条") }
+                                putJsonObject("upper") { mergeTopComment(rpid = 7L, msg = "同一条") }
                             },
                         )
                     },
@@ -386,7 +390,7 @@ class CommentRepositoryUnitTest {
                                 put("all_count", 1L)
                             },
                         )
-                        put("replies", buildJsonArray { add(topCommentJson(rpid = 9L, msg = "普通")) })
+                        putJsonArray("replies") { addJsonObject { mergeTopComment(rpid = 9L, msg = "普通") } }
                     },
                 ).jsonObject
             coEvery { BiliHttpApi.getVideoCommentsByCursor(any(), any(), any(), any()) } returns
@@ -398,27 +402,30 @@ class CommentRepositoryUnitTest {
             assertThat(result.comments.single().topType).isNull()
         }
 
-    /** 构造一条可用于 data.top 的评论对象。 */
-    private fun topCommentJson(
+    /**
+     * 往当前 JSON 对象里写入一条可用于 data.top 的评论。
+     *
+     * 不能写成 `put("admin", topCommentJson(...))`：JsonObjectBuilder.put 的
+     * `put(String, Any?)` 重载会把 JsonObject 当成普通值走字符串分支，
+     * 编译期报 "actual type is JsonObject, but String was expected"。
+     * 正确做法是用专用的 putJsonObject / addJsonObject + 此函数原地写入。
+     */
+    private fun JsonObjectBuilder.mergeTopComment(
         rpid: Long,
         msg: String,
-    ): JsonObject =
-        buildJsonObject {
-            put("rpid", rpid)
-            put("oid", AID)
+    ) {
+        put("rpid", rpid)
+        put("oid", AID)
+        put("mid", 5000L + rpid)
+        put("ctime", 1234567890L)
+        put("like", 1L)
+        putJsonObject("member") {
             put("mid", 5000L + rpid)
-            put("ctime", 1234567890L)
-            put("like", 1L)
-            put(
-                "member",
-                buildJsonObject {
-                    put("mid", 5000L + rpid)
-                    put("uname", "置顶用户$rpid")
-                    put("avatar", "")
-                },
-            )
-            put("content", buildJsonObject { put("message", msg) })
+            put("uname", "置顶用户$rpid")
+            put("avatar", "")
         }
+        putJsonObject("content") { put("message", msg) }
+    }
 
     // ------------------------------------------------------------------
     // 测试夹具
