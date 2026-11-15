@@ -324,7 +324,7 @@ class CommentRepositoryUnitTest {
                             putJsonObject("upper") { mergeTopComment(rpid = 2L, msg = "UP主置顶") }
                             putJsonObject("vote") { mergeTopComment(rpid = 3L, msg = "投票置顶") }
                         }
-                    },
+                    }.toString(),
                 ).jsonObject
             coEvery { BiliHttpApi.getVideoCommentsByCursor(any(), any(), any(), any()) } returns
                 BiliResponse(code = 0, message = "", data = data)
@@ -354,7 +354,7 @@ class CommentRepositoryUnitTest {
                             putJsonObject("admin") { mergeTopComment(rpid = 7L, msg = "同一条") }
                             putJsonObject("upper") { mergeTopComment(rpid = 7L, msg = "同一条") }
                         }
-                    },
+                    }.toString(),
                 ).jsonObject
             coEvery { BiliHttpApi.getVideoCommentsByCursor(any(), any(), any(), any()) } returns
                 BiliResponse(code = 0, message = "", data = data)
@@ -376,7 +376,7 @@ class CommentRepositoryUnitTest {
                             put("all_count", 1L)
                         }
                         putJsonArray("replies") { addJsonObject { mergeTopComment(rpid = 9L, msg = "普通") } }
-                    },
+                    }.toString(),
                 ).jsonObject
             coEvery { BiliHttpApi.getVideoCommentsByCursor(any(), any(), any(), any()) } returns
                 BiliResponse(code = 0, message = "", data = data)
