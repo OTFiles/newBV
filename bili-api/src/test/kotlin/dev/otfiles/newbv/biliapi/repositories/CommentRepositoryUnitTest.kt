@@ -314,22 +314,16 @@ class CommentRepositoryUnitTest {
             val data =
                 json.parseToJsonElement(
                     buildJsonObject {
-                        put(
-                            "cursor",
-                            buildJsonObject {
-                                put("is_end", true)
-                                put("all_count", 3L)
-                            },
-                        )
+                        putJsonObject("cursor") {
+                            put("is_end", true)
+                            put("all_count", 3L)
+                        }
                         putJsonArray("replies") { }
-                        put(
-                            "top",
-                            buildJsonObject {
-                                putJsonObject("admin") { mergeTopComment(rpid = 1L, msg = "管理员置顶") }
-                                putJsonObject("upper") { mergeTopComment(rpid = 2L, msg = "UP主置顶") }
-                                putJsonObject("vote") { mergeTopComment(rpid = 3L, msg = "投票置顶") }
-                            },
-                        )
+                        putJsonObject("top") {
+                            putJsonObject("admin") { mergeTopComment(rpid = 1L, msg = "管理员置顶") }
+                            putJsonObject("upper") { mergeTopComment(rpid = 2L, msg = "UP主置顶") }
+                            putJsonObject("vote") { mergeTopComment(rpid = 3L, msg = "投票置顶") }
+                        }
                     },
                 ).jsonObject
             coEvery { BiliHttpApi.getVideoCommentsByCursor(any(), any(), any(), any()) } returns
@@ -351,21 +345,15 @@ class CommentRepositoryUnitTest {
             val data =
                 json.parseToJsonElement(
                     buildJsonObject {
-                        put(
-                            "cursor",
-                            buildJsonObject {
-                                put("is_end", true)
-                                put("all_count", 1L)
-                            },
-                        )
+                        putJsonObject("cursor") {
+                            put("is_end", true)
+                            put("all_count", 1L)
+                        }
                         putJsonArray("replies") { }
-                        put(
-                            "top",
-                            buildJsonObject {
-                                putJsonObject("admin") { mergeTopComment(rpid = 7L, msg = "同一条") }
-                                putJsonObject("upper") { mergeTopComment(rpid = 7L, msg = "同一条") }
-                            },
-                        )
+                        putJsonObject("top") {
+                            putJsonObject("admin") { mergeTopComment(rpid = 7L, msg = "同一条") }
+                            putJsonObject("upper") { mergeTopComment(rpid = 7L, msg = "同一条") }
+                        }
                     },
                 ).jsonObject
             coEvery { BiliHttpApi.getVideoCommentsByCursor(any(), any(), any(), any()) } returns
@@ -383,13 +371,10 @@ class CommentRepositoryUnitTest {
             val data =
                 json.parseToJsonElement(
                     buildJsonObject {
-                        put(
-                            "cursor",
-                            buildJsonObject {
-                                put("is_end", true)
-                                put("all_count", 1L)
-                            },
-                        )
+                        putJsonObject("cursor") {
+                            put("is_end", true)
+                            put("all_count", 1L)
+                        }
                         putJsonArray("replies") { addJsonObject { mergeTopComment(rpid = 9L, msg = "普通") } }
                     },
                 ).jsonObject
@@ -446,73 +431,51 @@ class CommentRepositoryUnitTest {
             .parseToJsonElement(
                 buildJsonObject {
                     upperMid?.let { mid ->
-                        put(
-                            "upper",
-                            buildJsonObject { put("mid", mid) },
-                        )
+                        putJsonObject("upper") {
+                            put("mid", mid)
+                        }
                     }
-                    put(
-                        "replies",
-                        buildJsonArray {
-                            ids.forEachIndexed { i, rpid ->
-                                add(
-                                    buildJsonObject {
-                                        put("rpid", rpid)
-                                        put("oid", AID)
-                                        put("ctime", 1234567890L)
-                                        put("like", 10L)
-                                        put("rcount", 3)
-                                        put(
-                                            "member",
-                                            buildJsonObject {
-                                                put("mid", (1000 + i).toLong())
-                                                put("uname", "用户${i + 1}")
-                                                put("avatar", "http://test/$i")
-                                                put(
-                                                    "level_info",
-                                                    buildJsonObject { put("current_level", 3) },
-                                                )
-                                            },
-                                        )
-                                        put(
-                                            "content",
-                                            buildJsonObject { put("message", "评论${i + 1}") },
-                                        )
-                                        previews[rpid]?.let { nestedIds ->
-                                            put(
-                                                "replies",
-                                                buildJsonArray {
-                                                    nestedIds.forEach { nestedRpid ->
-                                                        add(
-                                                            buildJsonObject {
-                                                                put("rpid", nestedRpid)
-                                                                put("mid", 2000L + nestedRpid)
-                                                                put(
-                                                                    "content",
-                                                                    buildJsonObject {
-                                                                        put("message", "预览$nestedRpid")
-                                                                    },
-                                                                )
-                                                            },
-                                                        )
-                                                    }
-                                                },
-                                            )
+                    putJsonArray("replies") {
+                        ids.forEachIndexed { i, rpid ->
+                            addJsonObject {
+                                put("rpid", rpid)
+                                put("oid", AID)
+                                put("ctime", 1234567890L)
+                                put("like", 10L)
+                                put("rcount", 3)
+                                putJsonObject("member") {
+                                    put("mid", (1000 + i).toLong())
+                                    put("uname", "用户${i + 1}")
+                                    put("avatar", "http://test/$i")
+                                    putJsonObject("level_info") {
+                                        put("current_level", 3)
+                                    }
+                                }
+                                putJsonObject("content") {
+                                    put("message", "评论${i + 1}")
+                                }
+                                previews[rpid]?.let { nestedIds ->
+                                    putJsonArray("replies") {
+                                        nestedIds.forEach { nestedRpid ->
+                                            addJsonObject {
+                                                put("rpid", nestedRpid)
+                                                put("mid", 2000L + nestedRpid)
+                                                putJsonObject("content") {
+                                                    put("message", "预览$nestedRpid")
+                                                }
+                                            }
                                         }
-                                    },
-                                )
+                                    }
+                                }
                             }
-                        },
-                    )
-                    put(
-                        "page",
-                        buildJsonObject {
-                            put("acount", total.toLong())
-                            count?.let { put("count", it) }
-                            num?.let { put("num", it) }
-                            size?.let { put("size", it) }
-                        },
-                    )
+                        }
+                    }
+                    putJsonObject("page") {
+                        put("acount", total.toLong())
+                        count?.let { put("count", it) }
+                        num?.let { put("num", it) }
+                        size?.let { put("size", it) }
+                    }
                 }.toString(),
             ).jsonObject
     }
