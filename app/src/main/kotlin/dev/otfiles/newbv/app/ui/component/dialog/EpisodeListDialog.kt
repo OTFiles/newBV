@@ -122,7 +122,7 @@ fun EpisodeListButton(
 fun EpisodeGridButton(onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.touchClickable(onClick = onClick),
+        modifier = Modifier.touchClickable(onClick = onClick, requestFocusOnTap = false),
         shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
         colors =
             focusInvertedColors(
@@ -232,7 +232,7 @@ fun <T> EpisodeListDialog(
                                         } else {
                                             Modifier
                                         }
-                                    ).touchClickable(onClick = { selectedTab = index }),
+                                    ).touchClickable(onClick = { selectedTab = index }, requestFocusOnTap = false),
                             ) {
                                 Text(
                                     modifier = Modifier.padding(vertical = 8.dp),

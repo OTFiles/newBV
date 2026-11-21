@@ -114,7 +114,7 @@ fun StepLessMenuItem(
                 onClick = {},
             )
             Surface(
-                modifier = Modifier.touchClickable(onClick = decrement),
+                modifier = Modifier.touchClickable(onClick = decrement, requestFocusOnTap = false),
                 onClick = decrement,
             ) {
                 Icon(imageVector = Icons.Rounded.ArrowDropDown, contentDescription = "减少")

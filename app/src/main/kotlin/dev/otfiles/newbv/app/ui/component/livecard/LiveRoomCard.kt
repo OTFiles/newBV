@@ -53,7 +53,7 @@ fun LiveRoomCard(
                 Modifier
                     .fillMaxWidth()
                     .aspectRatio(1.78f)
-                    .touchClickable(onClick = onClick),
+                    .touchClickable(onClick = onClick, requestFocusOnTap = false),
             shape = CardDefaults.shape(MaterialTheme.shapes.large),
             border =
                 CardDefaults.border(

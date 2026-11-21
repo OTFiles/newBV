@@ -278,7 +278,7 @@ fun UpdateDialog(
                     UpdateStatus.Ready -> {
                         Button(
                             onClick = startUpdate,
-                            modifier = Modifier.touchClickable(onClick = startUpdate),
+                            modifier = Modifier.touchClickable(onClick = startUpdate, requestFocusOnTap = false),
                         ) {
                             Text(text = "立即更新")
                         }
@@ -287,7 +287,7 @@ fun UpdateDialog(
                     UpdateStatus.InstallPermissionRequired -> {
                         Button(
                             onClick = retryInstall,
-                            modifier = Modifier.touchClickable(onClick = retryInstall),
+                            modifier = Modifier.touchClickable(onClick = retryInstall, requestFocusOnTap = false),
                         ) {
                             Text(text = "重试")
                         }
@@ -296,7 +296,7 @@ fun UpdateDialog(
                     UpdateStatus.InstallError, UpdateStatus.DownloadError, UpdateStatus.CheckError -> {
                         Button(
                             onClick = checkUpdate,
-                            modifier = Modifier.touchClickable(onClick = checkUpdate),
+                            modifier = Modifier.touchClickable(onClick = checkUpdate, requestFocusOnTap = false),
                         ) {
                             Text(text = "再试一次")
                         }

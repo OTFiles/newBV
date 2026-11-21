@@ -286,7 +286,7 @@ private fun ConfirmClearDialog(
         confirmButton = {
             Button(
                 onClick = onConfirm,
-                modifier = Modifier.touchClickable(onClick = onConfirm),
+                modifier = Modifier.touchClickable(onClick = onConfirm, requestFocusOnTap = false),
             ) {
                 Text(text = "确定")
             }
@@ -294,7 +294,7 @@ private fun ConfirmClearDialog(
         dismissButton = {
             OutlinedButton(
                 onClick = onDismiss,
-                modifier = Modifier.touchClickable(onClick = onDismiss),
+                modifier = Modifier.touchClickable(onClick = onDismiss, requestFocusOnTap = false),
             ) {
                 Text(text = "取消")
             }

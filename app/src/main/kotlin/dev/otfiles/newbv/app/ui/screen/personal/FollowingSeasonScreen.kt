@@ -129,7 +129,7 @@ fun FollowingSeasonScreen(
                     )
                     IconButton(
                         onClick = { showFilter = true },
-                        modifier = Modifier.touchClickable(onClick = { showFilter = true }),
+                        modifier = Modifier.touchClickable(onClick = { showFilter = true }, requestFocusOnTap = false),
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.FilterList,
@@ -270,7 +270,7 @@ private fun FollowingSeasonFilterDialog(
                     ) {
                         androidx.tv.material3.Button(
                             onClick = { onApply(selectedType, selectedStatus) },
-                            modifier = Modifier.touchClickable(onClick = { onApply(selectedType, selectedStatus) }),
+                            modifier = Modifier.touchClickable(onClick =  { onApply(selectedType, selectedStatus) }, requestFocusOnTap = false),
                         ) {
                             androidx.tv.material3.Text("确定")
                         }
@@ -292,7 +292,7 @@ private fun FilterChip(
 ) {
     androidx.tv.material3.Surface(
         onClick = onClick,
-        modifier = Modifier.touchClickable(onClick = onClick),
+        modifier = Modifier.touchClickable(onClick = onClick, requestFocusOnTap = false),
         shape =
             androidx.tv.material3.ClickableSurfaceDefaults.shape(
                 shape =

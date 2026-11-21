@@ -229,16 +229,16 @@ private fun MainStage(
                 ) {
                     Button(
                         onClick = onAdd,
-                        modifier = Modifier.touchClickable(onClick = onAdd),
+                        modifier = Modifier.touchClickable(onClick = onAdd, requestFocusOnTap = false),
                     ) { Text("添加") }
                     OutlinedButton(
                         onClick = onClear,
                         enabled = shortcuts.isNotEmpty(),
-                        modifier = Modifier.touchClickable(onClick = { if (shortcuts.isNotEmpty()) onClear() }),
+                        modifier = Modifier.touchClickable(onClick = { if (shortcuts.isNotEmpty()) onClear() }, requestFocusOnTap = false),
                     ) { Text("清空") }
                     OutlinedButton(
                         onClick = onDismiss,
-                        modifier = Modifier.touchClickable(onClick = onDismiss),
+                        modifier = Modifier.touchClickable(onClick = onDismiss, requestFocusOnTap = false),
                     ) { Text("关闭") }
                 }
             }
@@ -350,7 +350,7 @@ private fun PickActionStage(
                     Row(modifier = Modifier.fillMaxWidth()) {
                         OutlinedButton(
                             onClick = onRemove,
-                            modifier = Modifier.touchClickable(onClick = onRemove),
+                            modifier = Modifier.touchClickable(onClick = onRemove, requestFocusOnTap = false),
                         ) { Text("移除绑定") }
                     }
                 }
@@ -433,11 +433,11 @@ private fun ConfirmClearStage(
                 ) {
                     Button(
                         onClick = onConfirm,
-                        modifier = Modifier.touchClickable(onClick = onConfirm),
+                        modifier = Modifier.touchClickable(onClick = onConfirm, requestFocusOnTap = false),
                     ) { Text("确定") }
                     OutlinedButton(
                         onClick = onDismiss,
-                        modifier = Modifier.touchClickable(onClick = onDismiss),
+                        modifier = Modifier.touchClickable(onClick = onDismiss, requestFocusOnTap = false),
                     ) { Text("取消") }
                 }
             }

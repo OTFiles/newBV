@@ -116,7 +116,7 @@ fun InfoSetting(
         val buttonModifier = screenFocusSaver?.let { Modifier.focusSaverItem(it, "content_media_codec") } ?: Modifier
         Button(
             onClick = onOpenMediaCodec,
-            modifier = buttonModifier.touchClickable(onClick = onOpenMediaCodec),
+            modifier = buttonModifier.touchClickable(onClick = onOpenMediaCodec, requestFocusOnTap = false),
         ) {
             Text(text = "编解码信息")
         }

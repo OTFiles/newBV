@@ -38,7 +38,7 @@ internal fun UserSelectCard(
         modifier =
             Modifier
                 .alpha(alpha)
-                .touchClickable(onClick = onClick),
+                .touchClickable(onClick = onClick, requestFocusOnTap = false),
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,

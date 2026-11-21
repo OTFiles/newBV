@@ -313,7 +313,7 @@ private fun SearchHistoryColumn(
                     }
                 }
                 IconButton(
-                    modifier = Modifier.touchClickable(onClick = { deleteMode = !deleteMode }),
+                    modifier = Modifier.touchClickable(onClick = { deleteMode = !deleteMode }, requestFocusOnTap = false),
                     onClick = { deleteMode = !deleteMode },
                 ) {
                     if (deleteMode) {

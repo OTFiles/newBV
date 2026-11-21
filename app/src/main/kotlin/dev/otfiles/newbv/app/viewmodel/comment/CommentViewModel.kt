@@ -23,6 +23,9 @@ import javax.inject.Inject
 
 private const val COMMENT_LOAD_TIMEOUT_MS = 10_000L
 
+/** 允许连续多少个「零新增」页后才判定热门排序到底，避免无限翻页。 */
+private const val MAX_EMPTY_PAGE_STREAK = 5
+
 /** 发表评论的超时。发表比读取更容易被风控排队，留更宽松的上限。 */
 private const val COMMENT_POST_TIMEOUT_MS = 20_000L
 
@@ -97,6 +100,8 @@ data class ReplyListState(
     val initialError: Boolean = false,
     val loadingMore: Boolean = false,
     val loadMoreError: Boolean = false,
+    /** 连续「零新增」页计数，见 [CommentListState.emptyPageStreak]。 */
+    val emptyPageStreak: Int = 0,
 )
 
 /**
@@ -137,6 +142,14 @@ data class CommentListState(
     val hots: List<Comment> = emptyList(),
     val topReplies: List<Comment> = emptyList(),
     val paginationOffset: String? = null,
+    /**
+     * 连续「整页都是重复项」的次数。
+     *
+     * 热门排序翻页时服务端会跨页返回大量已见过的评论，某几页可能一条新的都没有。
+     * 这类页不应立刻停止翻页（否则用户会觉得「加载到一半就不动了」），
+     * 但也不能无限翻下去。连续超过阈值才判定为到底。
+     */
+    val emptyPageStreak: Int = 0,
     val useCursor: Boolean = true,
     val supportedModes: List<Int> = emptyList(),
 ) {
@@ -374,14 +387,21 @@ class CommentViewModel
                                 comments = it.comments + appended,
                                 page = page.page,
                                 total = page.total,
-                                // 若本页全部为重复项则停止分页，避免服务端重叠导致死循环。
-                                // 游标通道额外要求下一游标存在：hasMore 为 true 但没有 offset
-                                // 时会退化成用同一个游标反复请求，最终被服务端判为错误，
-                                // 界面上就成了「评论已经加载完，却提示加载失败」。
+                                // 是否还有下一页，主要看服务端怎么说。
+                                //
+                                // 之前额外要求 appended.isNotEmpty()，出发点是不想因服务端
+                                // 跨页重叠而空转；但热门排序下后续页与前面的重度重复很常见，
+                                // 一旦某页全是重复项就直接停止加载，用户看到的就是
+                                // 「热门评论加载到一定数量就再也加载不出来」。
+                                //
+                                // 现在只保留「游标必须前进」这一条硬性约束：
+                                // 没有新游标（或游标没变）才停，否则继续翻，
+                                // 全重复的页只是本页没新增内容，不影响后续页。
                                 hasMore =
                                     page.hasMore &&
-                                        appended.isNotEmpty() &&
-                                        (!it.useCursor || page.paginationOffset != null),
+                                        it.emptyPageStreak < MAX_EMPTY_PAGE_STREAK &&
+                                        (!it.useCursor || (page.paginationOffset != null && page.paginationOffset != it.paginationOffset)),
+                                emptyPageStreak = if (appended.isEmpty()) it.emptyPageStreak + 1 else 0,
                                 loadingMore = false,
                                 loadMoreError = false,
                                 replyPreviews = it.replyPreviews + page.replyPreviews,
@@ -786,7 +806,13 @@ class CommentViewModel
                                 page = result.page,
                                 total = result.total,
                                 // 若后续页全部为重复项则停止分页
-                                hasMore = result.hasMore && (isFirst || appended.isNotEmpty()),
+                                // 不再因为「本页全是重复项」而停止翻页：
+                                // 楼中楼的回复数与实际可翻页数量常对不上，
+                                // 一旦某页全部重复就直接断掉，用户会看到
+                                // 「明明还有回复却加载不出来」。
+                                // 只要服务端说还有下一页就继续，靠空页计数兜底防空转。
+                                hasMore = result.hasMore && it.emptyPageStreak < MAX_EMPTY_PAGE_STREAK,
+                                emptyPageStreak = if (appended.isEmpty()) it.emptyPageStreak + 1 else 0,
                                 loaded = true,
                                 expanded = true,
                                 initialLoading = false,

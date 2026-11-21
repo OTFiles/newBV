@@ -145,7 +145,7 @@ private fun UserPanelContent(
             ) {
                 Button(
                     onClick = onToggleIncognito,
-                    modifier = Modifier.touchClickable(onClick = onToggleIncognito),
+                    modifier = Modifier.touchClickable(onClick = onToggleIncognito, requestFocusOnTap = false),
                 ) {
                     Text(
                         text =
@@ -155,14 +155,14 @@ private fun UserPanelContent(
                 }
                 Button(
                     onClick = onGoUserSwitch,
-                    modifier = Modifier.touchClickable(onClick = onGoUserSwitch),
+                    modifier = Modifier.touchClickable(onClick = onGoUserSwitch, requestFocusOnTap = false),
                 ) {
                     Text(text = stringResource(R.string.user_panel_account))
                 }
                 if (uiState.isLogin) {
                     Button(
                         onClick = onGoFollowList,
-                        modifier = Modifier.touchClickable(onClick = onGoFollowList),
+                        modifier = Modifier.touchClickable(onClick = onGoFollowList, requestFocusOnTap = false),
                     ) {
                         Text(text = "关注列表")
                     }

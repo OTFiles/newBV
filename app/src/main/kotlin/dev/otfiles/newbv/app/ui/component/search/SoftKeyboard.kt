@@ -108,7 +108,7 @@ private fun SoftKeyboardKey(
     onClick: () -> Unit,
 ) {
     Surface(
-        modifier = modifier.touchClickable(onClick = onClick),
+        modifier = modifier.touchClickable(onClick = onClick, requestFocusOnTap = false),
         onClick = onClick,
         colors =
             ClickableSurfaceDefaults.colors(

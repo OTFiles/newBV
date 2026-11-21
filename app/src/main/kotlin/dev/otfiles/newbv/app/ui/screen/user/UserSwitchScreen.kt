@@ -112,7 +112,7 @@ fun UserSwitchScreen(
                             modifier =
                                 Modifier
                                     .focusSaverItem(focusSaver, "add_user_empty")
-                                    .touchClickable(onClick = onNavigateLogin),
+                                    .touchClickable(onClick = onNavigateLogin, requestFocusOnTap = false),
                         ) {
                             Text(text = stringResource(R.string.user_switch_add))
                         }
@@ -245,7 +245,7 @@ private fun UserListItem(
 
         IconButton(
             onClick = onDelete,
-            modifier = Modifier.touchClickable(onClick = onDelete),
+            modifier = Modifier.touchClickable(onClick = onDelete, requestFocusOnTap = false),
         ) {
             Icon(
                 imageVector = Icons.Default.Delete,
@@ -265,7 +265,7 @@ private fun AddUserButton(
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier.touchClickable(onClick = onClick),
+        modifier = modifier.touchClickable(onClick = onClick, requestFocusOnTap = false),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,

@@ -57,9 +57,11 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -385,7 +387,11 @@ fun CommentsDialog(
     var imageViewerPictures by remember { mutableStateOf<List<String>?>(null) }
     var imageViewerIndex by remember { mutableIntStateOf(0) }
     // 草稿上提到 Dialog 层：发表成功后需要清空，而输入栏自身在成功后不应被重建
-    var draft by remember(aid) { mutableStateOf("") }
+    // 用 TextFieldValue 而不是 String：
+    // 中文输入法处于「组合中」（拼音还没上屏）时，composition 信息存在
+    // TextFieldValue 里。若只保存 String 并在 onValueChange 里做 take(MAX)，
+    // 每次组合都会重建文本、丢掉状态，表现为「最后一段字消失」。
+    var draftValue by remember(aid) { mutableStateOf(TextFieldValue("")) }
     var draftResetToken by remember(aid) { mutableIntStateOf(0) }
 
     LaunchedEffect(aid) {
@@ -398,7 +404,7 @@ fun CommentsDialog(
                 is CommentUiEffect.ShowToast -> ToastUtils.show(context, effect.message)
                 CommentUiEffect.Posted -> {
                     // 清空草稿：递增 token 让输入框内部重建，避免在外部重置时丢失焦点
-                    draft = ""
+                    draftValue = TextFieldValue("")
                     draftResetToken++
                     ToastUtils.show(context, "发表成功")
                 }
@@ -463,8 +469,9 @@ fun CommentsDialog(
                     onPostComment = viewModel::postComment,
                     onReply = viewModel::replyTo,
                     onCancelReply = { viewModel.setReplyTarget(null) },
-                    draft = draft,
-                    onDraftChange = { draft = it },
+                    draft = draftValue.text,
+                    textFieldValue = draftValue,
+                    onDraftChange = { draftValue = it },
                     draftResetToken = draftResetToken,
                     onImageClick = { pictures, index ->
                         imageViewerPictures = pictures
@@ -501,7 +508,8 @@ private fun CommentsContent(
     onReply: (Comment) -> Unit,
     onCancelReply: () -> Unit,
     draft: String,
-    onDraftChange: (String) -> Unit,
+    textFieldValue: TextFieldValue,
+    onDraftChange: (TextFieldValue) -> Unit,
     draftResetToken: Int,
     onImageClick: (List<String>, Int) -> Unit,
     onUserClick: (mid: Long, name: String) -> Unit = { _, _ -> },
@@ -586,13 +594,15 @@ private fun CommentsContent(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 服务端通过 cursor.support_mode 声明可用排序；未声明时（空）全部展示
-            val supportedModes = state.commentList.supportedModes
-            CommentSort.entries
-                .filter { supportedModes.isEmpty() || it.cursorMode in supportedModes }
-                .forEach { sort ->
-                    SortButton(sort, state.sort, onSortChange)
-                }
+            // 固定展示全部三个排序，不再按 cursor.support_mode 过滤。
+            //
+            // 服务端常返回 support_mode=[2,3]（不含 1），「综合」会被隐藏，
+            // 用户看到的就是「排序按钮时不时少一个」，非常困惑。
+            // 即便服务端不支持某个 mode，请求它时也只是排序效果退化，
+            // 不会报错，因此这里一律展示，行为可预期。
+            CommentSort.entries.forEach { sort ->
+                SortButton(sort, state.sort, onSortChange)
+            }
 
             Spacer(modifier = Modifier.weight(1f))
 
@@ -607,6 +617,7 @@ private fun CommentsContent(
             state = state,
             mode = mode,
             draft = draft,
+            textFieldValue = textFieldValue,
             onDraftChange = onDraftChange,
             draftResetToken = draftResetToken,
             onSubmit = onPostComment,
@@ -1189,8 +1200,10 @@ private fun DialogActionButton(
     Surface(
         modifier =
             Modifier
-                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-                .touchClickable(onClick = onClick),
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
+        // 不要再叠 touchClickable：它内部会额外创建 FocusRequester，
+        // 与 Surface 自身的可聚焦节点冲突，导致同一个按钮上出现两个焦点，
+        // 点击/确认键的响应也会变得不稳定（表现为「点了收起没反应」）。
         onClick = onClick,
         enabled = enabled,
         shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
@@ -1276,7 +1289,10 @@ private fun CommentComposerButton(
             ),
     ) {
         Text(
-            text = if (expanded) "收起" else "写评论",
+            // 展开时这个按钮不再显示「收起」——输入区自己已有收起按钮，
+            // 两个「收起」功能重复，且点击这里不会收起（它只负责展开），
+            // 造成「点了收起没反应」。展开期间把文案改成不可误触的提示。
+            text = if (expanded) "评论输入框已展开" else "写评论",
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             style = MaterialTheme.typography.labelLarge,
         )
@@ -1308,7 +1324,8 @@ private fun CommentComposer(
     state: CommentUiState,
     mode: CommentDialogMode,
     draft: String,
-    onDraftChange: (String) -> Unit,
+    textFieldValue: TextFieldValue,
+    onDraftChange: (TextFieldValue) -> Unit,
     draftResetToken: Int,
     onSubmit: (String) -> Unit,
     onCancelReply: () -> Unit,
@@ -1433,8 +1450,22 @@ private fun CommentComposer(
                         )
                     }
                     BasicTextField(
-                        value = draft,
-                        onValueChange = { onDraftChange(it.take(COMMENT_INPUT_MAX_LENGTH)) },
+                        // 用 TextFieldValue 版本，让输入法的组合状态（composition）
+                        // 得以保留。截断改为只裁 text 并同步光标，不再整块重建。
+                        value = textFieldValue,
+                        onValueChange = { newValue ->
+                            onDraftChange(
+                                if (newValue.text.length <= COMMENT_INPUT_MAX_LENGTH) {
+                                    newValue
+                                } else {
+                                    val clipped = newValue.text.take(COMMENT_INPUT_MAX_LENGTH)
+                                    newValue.copy(
+                                        text = clipped,
+                                        selection = TextRange(clipped.length),
+                                    )
+                                },
+                            )
+                        },
                         modifier =
                             Modifier
                                 .fillMaxWidth()
@@ -1670,6 +1701,7 @@ private fun CommentsContentPreview() {
             onReply = {},
             onCancelReply = {},
             draft = "",
+            textFieldValue = TextFieldValue(""),
             onDraftChange = {},
             draftResetToken = 0,
             onImageClick = { _, _ -> },

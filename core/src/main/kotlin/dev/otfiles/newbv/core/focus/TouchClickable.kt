@@ -34,29 +34,37 @@ import androidx.compose.ui.input.pointer.pointerInput
  *
  * @param onClick 单击回调。
  * @param onLongClick 长按回调，null 时仅处理单击且响应更快（无长按等待）。
+ * @param requestFocusOnTap 触屏点击时是否主动把焦点移到本元素。
+ *   默认 **true**，保持既有行为（很多调用方是自身不可聚焦的自绘元素，
+ *   依赖它来获得焦点）。
+ *   但如果宿主组件本身已是可聚焦节点（Surface / FilterChip / Button 且传了
+ *   `onClick`），必须显式传 **false**——否则同一个按钮上会出现两个焦点，
+ *   方向键来回跳、点击响应不稳定。
  */
 fun Modifier.touchClickable(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
+    requestFocusOnTap: Boolean = true,
 ): Modifier =
     composed {
         val currentOnClick by rememberUpdatedState(onClick)
         val currentOnLongClick by rememberUpdatedState(onLongClick)
         val hasLongClick = onLongClick != null
-        val focusRequester = remember { FocusRequester() }
+        // 只有显式要求时才创建焦点请求器，避免与宿主的焦点节点冲突
+        val focusRequester = if (requestFocusOnTap) remember { FocusRequester() } else null
 
         this
-            .focusRequester(focusRequester)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .pointerInput(hasLongClick) {
                 detectTapGestures(
                     onTap = {
-                        runCatching { focusRequester.requestFocus() }
+                        runCatching { focusRequester?.requestFocus() }
                         currentOnClick()
                     },
                     onLongPress =
                         if (hasLongClick) {
                             {
-                                runCatching { focusRequester.requestFocus() }
+                                runCatching { focusRequester?.requestFocus() }
                                 currentOnLongClick?.invoke()
                             }
                         } else {

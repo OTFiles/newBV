@@ -160,7 +160,7 @@ fun SearchResultFilter(
                 ) {
                     OutlinedButton(
                         onClick = onDismiss,
-                        modifier = Modifier.touchClickable(onClick = onDismiss),
+                        modifier = Modifier.touchClickable(onClick = onDismiss, requestFocusOnTap = false),
                     ) {
                         Text("取消")
                     }
@@ -168,7 +168,7 @@ fun SearchResultFilter(
                         modifier =
                             Modifier
                                 .padding(start = 8.dp)
-                                .touchClickable(onClick = { onConfirm(currentOrder, currentDuration) }),
+                                .touchClickable(onClick =  { onConfirm(currentOrder, currentDuration) }, requestFocusOnTap = false),
                         onClick = { onConfirm(currentOrder, currentDuration) },
                     ) {
                         Text("确定")

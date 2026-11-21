@@ -340,7 +340,7 @@ private fun AreaMiniCard(
         modifier =
             modifier
                 .size(100.dp)
-                .touchClickable(onClick = onClick),
+                .touchClickable(onClick = onClick, requestFocusOnTap = false),
         shape = CardDefaults.shape(MaterialTheme.shapes.medium),
         border =
             CardDefaults.border(

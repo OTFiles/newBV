@@ -485,7 +485,7 @@ private fun SeasonEpisodeRow(
                 if (lastEpisode != null) {
                     Surface(
                         onClick = { onClick(lastEpisode) },
-                        modifier = Modifier.touchClickable(onClick = { onClick(lastEpisode) }),
+                        modifier = Modifier.touchClickable(onClick = { onClick(lastEpisode) }, requestFocusOnTap = false),
                         shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
                         // 不做聚焦放大：否则会盖住左侧的网格列表按钮
                         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),

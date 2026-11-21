@@ -536,43 +536,70 @@ private fun FavoriteFolderDialog(
                                 }
                             onUpdate(next.toList())
                         }
-                        androidx.tv.material3.FilterChip(
-                            selected = selected,
+                        // 用 Surface 自绘而不是 FilterChip：
+                        // FilterChipDefaults.colors 对「聚焦 + 已选中」这档状态
+                        // 的配色不够可控（默认会给深底配偏暗文字），
+                        // 深色主题下收藏夹名会糊掉。自己算颜色最稳。
+                        var chipFocused by remember { mutableStateOf(false) }
+                        val chipContainer =
+                            when {
+                                chipFocused && selected -> MaterialTheme.colorScheme.primary
+                                chipFocused -> MaterialTheme.colorScheme.primary
+                                selected -> MaterialTheme.colorScheme.primaryContainer
+                                else -> MaterialTheme.colorScheme.surfaceVariant
+                            }
+                        val chipContent =
+                            when {
+                                // 聚焦时（无论是否选中）容器都是 primary（深蓝紫），
+                                // 文字必须用 onPrimary（白），否则对比度不足
+                                chipFocused -> MaterialTheme.colorScheme.onPrimary
+                                selected -> MaterialTheme.colorScheme.onPrimaryContainer
+                                else -> MaterialTheme.colorScheme.onSurface
+                            }
+                        androidx.tv.material3.Surface(
+                            // 不传 selected：选中状态完全由下方容器色表达，
+                            // 避免依赖 tv-material3 对 selected 态的额外配色逻辑
                             onClick = toggle,
-                            // 只有第一个 chip 承担初始焦点
                             modifier =
-                                if (index == 0) {
-                                    Modifier.focusRequester(firstChipFocusRequester)
-                                } else {
-                                    Modifier
-                                },
-                            // 不要再叠 touchClickable：它内部会额外 attach 一个
-                            // FocusRequester，而 FilterChip 自身已经是可聚焦节点，
-                            // 于是同一个按钮上出现两个焦点——方向键来回跳、
-                            // 其中一个还是无样式的白色背景，文字糊成一片。
-                            // tv-material3 的 FilterChip 本身已支持触屏点击。
-                            // 选中态必须显式给容器色与文字色：
-                            // 默认 selectedContainerColor 是浅色系，深色主题下
-                            // 文字仍用 onSurface（浅色），叠在一起就看不清名字了
-                            // focused* 必须显式配置：tv-material3 的默认聚焦态是
-                            // 浅色系容器 + 浅色文字，深色主题下会变成「白底浅字」，
-                            // 收藏夹名几乎看不清。
+                                Modifier
+                                    .then(
+                                        if (index == 0) {
+                                            Modifier.focusRequester(firstChipFocusRequester)
+                                        } else {
+                                            Modifier
+                                        },
+                                    ).onFocusChanged { chipFocused = it.isFocused },
+                            shape =
+                                androidx.tv.material3.ClickableSurfaceDefaults.shape(
+                                    shape = RoundedCornerShape(50),
+                                ),
                             colors =
-                                androidx.tv.material3.FilterChipDefaults.colors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                    contentColor = MaterialTheme.colorScheme.onSurface,
-                                    focusedContainerColor = MaterialTheme.colorScheme.primary,
-                                    focusedContentColor = MaterialTheme.colorScheme.onPrimary,
-                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    selectedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                                    containerColor = chipContainer,
+                                    contentColor = chipContent,
+                                    focusedContainerColor = chipContainer,
+                                    focusedContentColor = chipContent,
+                                    pressedContainerColor = MaterialTheme.colorScheme.primary,
+                                    pressedContentColor = MaterialTheme.colorScheme.onPrimary,
+                                ),
+                            border =
+                                androidx.tv.material3.ClickableSurfaceDefaults.border(
+                                    focusedBorder =
+                                        androidx.tv.material3.Border(
+                                            border =
+                                                androidx.compose.foundation.BorderStroke(
+                                                    2.dp,
+                                                    MaterialTheme.colorScheme.border,
+                                                ),
+                                            shape = RoundedCornerShape(50),
+                                        ),
                                 ),
                         ) {
-                            // 不要在这里硬编码 color：它会覆盖 FilterChip 按当前状态
-                            // （普通/聚焦/选中）算出的 contentColor，导致聚焦时
-                            // 容器变深底、文字却仍是浅色，糊成一片。
                             Text(
                                 text = folder.title,
                                 style = MaterialTheme.typography.labelMedium,
+                                color = chipContent,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                             )
                         }
                     }
@@ -697,7 +724,7 @@ private fun VideoInfoHeader(
                         Modifier
                             .focusRequester(upFocusRequester)
                             .onFocusChanged { if (it.hasFocus) focusSaver.saveFocusedKey("up") }
-                            .touchClickable(onClick = onClickUp),
+                            .touchClickable(onClick = onClickUp, requestFocusOnTap = false),
                     shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
                     border =
                         ClickableSurfaceDefaults.border(
@@ -812,7 +839,7 @@ private fun VideoInfoHeader(
                                 Modifier
                                     .focusRequester(focusSaver.focusRequesterFor(tagKey))
                                     .onFocusChanged { if (it.hasFocus) focusSaver.saveFocusedKey(tagKey) }
-                                    .touchClickable(onClick = { onClickTag(tag) }),
+                                    .touchClickable(onClick = { onClickTag(tag) }, requestFocusOnTap = false),
                             // tag 不做聚焦放大：否则首尾 tag 会被 LazyRow 视口裁切
                             scale = SuggestionChipDefaults.scale(focusedScale = 1f),
                         ) {
@@ -1005,7 +1032,7 @@ private fun VideoPartRow(
             if (pages.size > PART_LIST_DIALOG_THRESHOLD) {
                 Surface(
                     onClick = onShowPartListDialog,
-                    modifier = Modifier.touchClickable(onClick = onShowPartListDialog),
+                    modifier = Modifier.touchClickable(onClick = onShowPartListDialog, requestFocusOnTap = false),
                     shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
                     colors =
                         focusInvertedColors(
@@ -1028,7 +1055,7 @@ private fun VideoPartRow(
                 if (lastPage != null) {
                     Surface(
                         onClick = { onClick(lastPage) },
-                        modifier = Modifier.touchClickable(onClick = { onClick(lastPage) }),
+                        modifier = Modifier.touchClickable(onClick = { onClick(lastPage) }, requestFocusOnTap = false),
                         shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
                         // 不做聚焦放大：否则会盖住左侧的网格列表按钮
                         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
@@ -1132,7 +1159,7 @@ private fun VideoUgcSeasonRow(
             if (episodes.size > PART_LIST_DIALOG_THRESHOLD) {
                 Surface(
                     onClick = onShowListDialog,
-                    modifier = Modifier.touchClickable(onClick = onShowListDialog),
+                    modifier = Modifier.touchClickable(onClick = onShowListDialog, requestFocusOnTap = false),
                     shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
                     colors =
                         focusInvertedColors(

@@ -70,7 +70,7 @@ fun AboutSetting(modifier: Modifier = Modifier) {
             }
             Button(
                 onClick = { showUpdateDialog = true },
-                modifier = Modifier.touchClickable(onClick = { showUpdateDialog = true }),
+                modifier = Modifier.touchClickable(onClick = { showUpdateDialog = true }, requestFocusOnTap = false),
             ) {
                 Text(text = "检查更新")
             }
