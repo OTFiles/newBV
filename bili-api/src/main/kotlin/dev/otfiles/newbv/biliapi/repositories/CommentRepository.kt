@@ -165,7 +165,11 @@ class CommentRepository(
                 .orEmpty()
 
         val total = cursor?.longValue("all_count")?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: 0
-        val isEnd = cursor?.booleanValue("is_end") ?: true
+        // 只有服务端明确给出 is_end=true 才认为到底。
+        // 原先缺省值是 true，热门排序下服务端经常不返回该字段，
+        // 于是第一页之后立刻判定「没有更多」，
+        // 表现为热门评论加载到一定数量就再也加载不出来。
+        val isEnd = cursor?.booleanValue("is_end") ?: false
         val nextOffset =
             ((cursor?.get("pagination_reply") as? JsonObject)?.get("next_offset"))
                 ?.jsonPrimitive
@@ -177,8 +181,10 @@ class CommentRepository(
             // 游标通道没有页码概念，固定为 1，避免 UI 依赖页码时出现 0
             page = 1,
             total = total,
-            // 有下一页偏移且服务端未标记结束才继续翻页
-            hasMore = !isEnd && nextOffset != null,
+            // 服务端明确标记结束才停；否则只要本页有内容就继续翻。
+            // 游标为空但仍有数据时（部分排序不返回 next_offset），
+            // 上层会退化成用页码继续请求，总比直接卡死好。
+            hasMore = !isEnd && (nextOffset != null || comments.isNotEmpty()),
             paginationOffset = nextOffset,
             hots = parseList("hots"),
             topReplies = topReplies,

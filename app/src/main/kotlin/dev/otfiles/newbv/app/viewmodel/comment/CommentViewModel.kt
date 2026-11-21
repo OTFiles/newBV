@@ -409,6 +409,19 @@ class CommentViewModel
                                 paginationOffset = page.paginationOffset ?: it.paginationOffset,
                             )
                         }
+                        // 诊断日志：热门评论「加载不动」需要看清是哪一环卡住——
+                        // 服务端说没了 / 游标没前进 / 连续空页超限。
+                        // 取日志后按 loadMore 关键字过滤即可定位。
+                        val after = _uiState.value.commentLists[sort]
+                        logger.info {
+                            "loadMore sort=${sort.name} page=${page.page} " +
+                                "got=${page.comments.size} appended=${appended.size} " +
+                                "serverHasMore=${page.hasMore} " +
+                                "nextOffset=${page.paginationOffset} " +
+                                "cursor=${current.useCursor} " +
+                                "emptyStreak=${after?.emptyPageStreak} " +
+                                "hasMore=${after?.hasMore} total=${after?.total}"
+                        }
                     } catch (error: Throwable) {
                         rethrowCancellation(error)
                         logger.error(error) { "Failed to load more comments: aid=$aid, sort=${sort.name}" }
@@ -624,7 +637,15 @@ class CommentViewModel
             //
             // 这里先把该楼中楼标记为未加载，让 startRepliesLoad 的 isFirst 分支
             // 走「整表替换」而不是「追加」，否则新旧数据会拼在一起出现重复。
-            updateReplyList(target.rootRpid, sort) { it.copy(loaded = false) }
+            // 必须整体重置，不能只把 loaded 置 false：
+            // page 若保留上一轮的页码（比如已经翻到 3），
+            // 重载后 page 仍是 3，而列表已经换成第 1 页的内容，
+            // 于是下一次「加载更多」会直接请求第 4 页，中间两页的回复就永远补不回来；
+            // hasMore / emptyPageStreak 同理，残留会导致「明明还有回复却显示已加载完」
+            // 或者反过来一直空转。
+            updateReplyList(target.rootRpid, sort) {
+                ReplyListState(rootRpid = target.rootRpid, expanded = true, initialLoading = true)
+            }
             startRepliesLoad(sort = sort, aid = aid, rootRpid = target.rootRpid, page = 1)
             // 主评论上的回复数需要更新，否则界面仍显示旧数字
             updateCommentList(sort) { list ->

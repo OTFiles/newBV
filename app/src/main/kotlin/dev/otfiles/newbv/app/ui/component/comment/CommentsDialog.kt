@@ -95,6 +95,7 @@ import dev.otfiles.newbv.core.focus.isDpadLeft
 import dev.otfiles.newbv.core.focus.isDpadRight
 import dev.otfiles.newbv.core.focus.isDpadUp
 import dev.otfiles.newbv.core.focus.touchClickable
+import dev.otfiles.newbv.core.log.Loggers
 import dev.otfiles.newbv.core.theme.BVTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -1366,6 +1367,9 @@ private fun CommentComposer(
 
     fun submit() {
         if (!canSubmit) return
+        // 提交前把真正要发出去的文本记下来，
+        // 和上面 input 日志对照就能确定是「输入阶段丢字」还是「提交阶段丢字」
+        commentInputLog.i { "submit: len=${draft.length}, text=$draft" }
         onSubmit(draft)
     }
 
@@ -1442,23 +1446,51 @@ private fun CommentComposer(
                     ),
             ) {
                 Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                    if (draft.isEmpty()) {
-                        Text(
-                            text = target?.let { "回复 @${it.targetUserName}…" } ?: "发一条友善的评论…",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    // 占位符**必须始终参与组合**，不能写成
+                    // `if (draft.isEmpty()) { Text(...) }`。
+                    //
+                    // 那样写的话：用户敲下第一个字 → draft 由空变非空 → 占位符被移除 →
+                    // BasicTextField 在 Box 里的位置从「第 2 个子节点」变成「第 1 个」。
+                    // Compose 是按位置匹配子节点的，位置变了就判定为「这里换了个东西」，
+                    // 于是把 BasicTextField 整个销毁重建，输入法连接随之断开，
+                    // 之后敲进去的字全部丢进已断开的连接里。
+                    // 现象就是「只发出最开始输入的那一段」，
+                    // 同时 logcat 里刷 SPAN_EXCLUSIVE_EXCLUSIVE zero length。
+                    //
+                    // 现在让 Text 一直存在，仅通过颜色隐藏文字：子节点数量恒为 2，
+                    // 位置永远不变，BasicTextField 不会被重建。
+                    Text(
+                        text = target?.let { "回复 @${it.targetUserName}…" } ?: "发一条友善的评论…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color =
+                            if (draft.isEmpty()) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                androidx.compose.ui.graphics.Color.Transparent
+                            },
+                    )
                     BasicTextField(
                         // 用 TextFieldValue 版本，让输入法的组合状态（composition）
                         // 得以保留。截断改为只裁 text 并同步光标，不再整块重建。
                         value = textFieldValue,
                         onValueChange = { newValue ->
+                            // 诊断日志：输入法丢字问题需要看清「用户实际敲进去的文本」
+                            // 与「Compose 收到的文本」是否一致。
+                            // 重点看 composition：组合中时 text 通常为空、composition 有值；
+                            // 若每次都是「一段长的 text + 空的 composition 交替出现」，
+                            // 说明宿主在反复重建输入状态。
+                            commentInputLog.d { 
+                                "input: len=${newValue.text.length}, " +
+                                    "composition=${newValue.composition}, " +
+                                    "sel=${newValue.selection.start}-${newValue.selection.end}, " +
+                                    "text=${newValue.text}"
+                            }
                             onDraftChange(
                                 if (newValue.text.length <= COMMENT_INPUT_MAX_LENGTH) {
                                     newValue
                                 } else {
                                     val clipped = newValue.text.take(COMMENT_INPUT_MAX_LENGTH)
+                                    commentInputLog.w { "input clipped: ${newValue.text.length} -> ${clipped.length}" }
                                     newValue.copy(
                                         text = clipped,
                                         selection = TextRange(clipped.length),
@@ -1532,6 +1564,9 @@ private fun CommentComposer(
 
 /** 输入框本地字符限制，与服务端 1000 字上限一致。 */
 private const val COMMENT_INPUT_MAX_LENGTH = 1000
+
+/** 输入框诊断日志（TAG: CommentInput）。 */
+private val commentInputLog = Loggers.get("CommentInput")
 
 /**
  * 图片查看覆盖层。

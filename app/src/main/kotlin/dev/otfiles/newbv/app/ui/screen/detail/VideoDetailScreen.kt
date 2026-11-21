@@ -540,6 +540,8 @@ private fun FavoriteFolderDialog(
                         // FilterChipDefaults.colors 对「聚焦 + 已选中」这档状态
                         // 的配色不够可控（默认会给深底配偏暗文字），
                         // 深色主题下收藏夹名会糊掉。自己算颜色最稳。
+                        // 形状保持 4dp 小圆角（视觉上是方形），与其余卡片一致。
+                        // 注意用 .dp 直接写数值、不要用 FilterChip 那种全圆胶囊。
                         var chipFocused by remember { mutableStateOf(false) }
                         val chipContainer =
                             when {
@@ -571,7 +573,7 @@ private fun FavoriteFolderDialog(
                                     ).onFocusChanged { chipFocused = it.isFocused },
                             shape =
                                 androidx.tv.material3.ClickableSurfaceDefaults.shape(
-                                    shape = RoundedCornerShape(50),
+                                    shape = RoundedCornerShape(4.dp),
                                 ),
                             colors =
                                 androidx.tv.material3.ClickableSurfaceDefaults.colors(
@@ -591,7 +593,7 @@ private fun FavoriteFolderDialog(
                                                     2.dp,
                                                     MaterialTheme.colorScheme.border,
                                                 ),
-                                            shape = RoundedCornerShape(50),
+                                            shape = RoundedCornerShape(4.dp),
                                         ),
                                 ),
                         ) {
