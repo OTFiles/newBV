@@ -1369,7 +1369,7 @@ private fun CommentComposer(
         if (!canSubmit) return
         // 提交前把真正要发出去的文本记下来，
         // 和上面 input 日志对照就能确定是「输入阶段丢字」还是「提交阶段丢字」
-        commentInputLog.i { "submit: len=${draft.length}, text=$draft" }
+        commentInputLog.info { "submit: len=${draft.length}, text=$draft" }
         onSubmit(draft)
     }
 
@@ -1479,7 +1479,7 @@ private fun CommentComposer(
                             // 重点看 composition：组合中时 text 通常为空、composition 有值；
                             // 若每次都是「一段长的 text + 空的 composition 交替出现」，
                             // 说明宿主在反复重建输入状态。
-                            commentInputLog.d { 
+                            commentInputLog.debug { 
                                 "input: len=${newValue.text.length}, " +
                                     "composition=${newValue.composition}, " +
                                     "sel=${newValue.selection.start}-${newValue.selection.end}, " +
@@ -1490,7 +1490,7 @@ private fun CommentComposer(
                                     newValue
                                 } else {
                                     val clipped = newValue.text.take(COMMENT_INPUT_MAX_LENGTH)
-                                    commentInputLog.w { "input clipped: ${newValue.text.length} -> ${clipped.length}" }
+                                    commentInputLog.warn { "input clipped: ${newValue.text.length} -> ${clipped.length}" }
                                     newValue.copy(
                                         text = clipped,
                                         selection = TextRange(clipped.length),
