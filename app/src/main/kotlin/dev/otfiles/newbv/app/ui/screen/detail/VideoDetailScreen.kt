@@ -48,7 +48,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -474,7 +473,19 @@ private fun FavoriteFolderDialog(
     onDismiss: () -> Unit,
     onUpdate: (List<Long>) -> Unit,
 ) {
-    val defaultFocusRequester = remember { FocusRequester() }
+    // 只在弹窗首次出现时聚焦一次。
+    //
+    // 原实现把 requestFocus 放在 onGloballyPositioned 里，而该回调**每次布局都会触发**：
+    // 用户把焦点移到某个收藏夹上，只要发生任何重布局（选中态变化、滚动等），
+    // 焦点就被强行拉走，表现为「焦点自己乱跳」「像是有两个焦点」。
+    // 而 Box 本身不可聚焦，requestFocus 失败后会回落到第一个可聚焦子节点，
+    // 于是又多出一个与实际焦点位置不一致的高亮。
+    val firstChipFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        // 等一帧让 chip 完成布局，否则 requestFocus 会静默失败
+        kotlinx.coroutines.delay(16)
+        runCatching { firstChipFocusRequester.requestFocus() }
+    }
     // 以 ViewModel 的收藏夹状态为唯一数据源，不再维护本地副本。
     //
     // 这里经历过两次错误写法：
@@ -490,10 +501,7 @@ private fun FavoriteFolderDialog(
         Box(
             modifier =
                 Modifier
-                    .focusRequester(defaultFocusRequester)
-                    .onGloballyPositioned {
-                        runCatching { defaultFocusRequester.requestFocus() }
-                    }.width(500.dp)
+                    .width(500.dp)
                     .clip(MaterialTheme.shapes.large)
                     .background(MaterialTheme.colorScheme.surface)
                     .padding(20.dp),
@@ -514,7 +522,7 @@ private fun FavoriteFolderDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    folders.forEachIndexed { _, folder ->
+                    folders.forEachIndexed { index, folder ->
                         val selected = folder.id in selectedFolderIds
                         // 点击逻辑只写一份：原先 onClick 与 touchClickable 各写一遍，
                         // 触屏点击会触发两次切换（加了又删），表现为点不动。
@@ -531,6 +539,13 @@ private fun FavoriteFolderDialog(
                         androidx.tv.material3.FilterChip(
                             selected = selected,
                             onClick = toggle,
+                            // 只有第一个 chip 承担初始焦点
+                            modifier =
+                                if (index == 0) {
+                                    Modifier.focusRequester(firstChipFocusRequester)
+                                } else {
+                                    Modifier
+                                },
                             // 不要再叠 touchClickable：它内部会额外 attach 一个
                             // FocusRequester，而 FilterChip 自身已经是可聚焦节点，
                             // 于是同一个按钮上出现两个焦点——方向键来回跳、
@@ -539,21 +554,25 @@ private fun FavoriteFolderDialog(
                             // 选中态必须显式给容器色与文字色：
                             // 默认 selectedContainerColor 是浅色系，深色主题下
                             // 文字仍用 onSurface（浅色），叠在一起就看不清名字了
+                            // focused* 必须显式配置：tv-material3 的默认聚焦态是
+                            // 浅色系容器 + 浅色文字，深色主题下会变成「白底浅字」，
+                            // 收藏夹名几乎看不清。
                             colors =
                                 androidx.tv.material3.FilterChipDefaults.colors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    contentColor = MaterialTheme.colorScheme.onSurface,
+                                    focusedContainerColor = MaterialTheme.colorScheme.primary,
+                                    focusedContentColor = MaterialTheme.colorScheme.onPrimary,
                                     selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                                     selectedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                 ),
                         ) {
+                            // 不要在这里硬编码 color：它会覆盖 FilterChip 按当前状态
+                            // （普通/聚焦/选中）算出的 contentColor，导致聚焦时
+                            // 容器变深底、文字却仍是浅色，糊成一片。
                             Text(
                                 text = folder.title,
                                 style = MaterialTheme.typography.labelMedium,
-                                color =
-                                    if (selected) {
-                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurface
-                                    },
                             )
                         }
                     }

@@ -859,7 +859,10 @@ internal fun CommentCard(
                 .padding(12.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            // 头像可点击进入该用户主页；作者主页是评论区最常见的跳转目标
+            // 头像可点击进入该用户主页；作者主页是评论区最常见的跳转目标。
+            //
+            // 焦点必须靠**边框 + 轻微放大**体现：头像是铺满整个 Surface 的图片，
+            // 只改容器色会被图片完全盖住，用户看到的就是「焦点在头像上不显示」。
             Surface(
                 onClick = { onUserClick(comment.mid, comment.userName) },
                 shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
@@ -867,10 +870,25 @@ internal fun CommentCard(
                     ClickableSurfaceDefaults.colors(
                         containerColor = Color.Transparent,
                         contentColor = Color.Unspecified,
-                        focusedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                        pressedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                     ),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+                border =
+                    ClickableSurfaceDefaults.border(
+                        focusedBorder =
+                            Border(
+                                border =
+                                    androidx.compose.foundation.BorderStroke(
+                                        2.dp,
+                                        MaterialTheme.colorScheme.primary,
+                                    ),
+                                shape = MaterialTheme.shapes.small,
+                            ),
+                        border =
+                            Border(
+                                border = androidx.compose.foundation.BorderStroke(0.dp, Color.Transparent),
+                                shape = MaterialTheme.shapes.small,
+                            ),
+                    ),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
             ) {
                 AsyncImage(
                     model = comment.avatar,
@@ -881,30 +899,18 @@ internal fun CommentCard(
             }
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // 用户名单独一个可点击区域
-                    Surface(
-                        onClick = { onUserClick(comment.mid, comment.userName) },
-                        shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
-                        colors =
-                            ClickableSurfaceDefaults.colors(
-                                containerColor = Color.Transparent,
-                                contentColor = MaterialTheme.colorScheme.primary,
-                                focusedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                focusedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                pressedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                pressedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            ),
-                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-                    ) {
-                        Text(
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                            text = comment.userName,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    // 用户名**不可聚焦**：它只是身份标签，不是操作入口。
+                    // 做成可点击会让遥控器在每一行评论里多停一站，
+                    // 从「赞」走向下一条评论时被迫经过一个纯文本节点，很烦。
+                    // 进主页的唯一入口是左侧头像。
+                    Text(
+                        text = comment.userName,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
 
                     // 等级与 UP 标改为独立胶囊：拼进用户名字符串时，
                     // 「某用户名 Lv.5 UP主」会被读成名字的一部分，尤其在
@@ -1339,14 +1345,6 @@ private fun CommentComposer(
         }
     }
 
-    // 焦点离开即收起。保留草稿不丢，所以只在草稿为空时才真正收起，
-    // 避免用户误触方向键把正在写的内容藏起来。
-    LaunchedEffect(isFocused, expanded) {
-        if (!isFocused && expanded && draft.isEmpty() && target == null && !state.isPosting) {
-            onExpandedChange(false)
-        }
-    }
-
     val canSubmit = draft.isNotBlank() && !state.isPosting
 
     fun submit() {
@@ -1464,6 +1462,16 @@ private fun CommentComposer(
                 icon = Icons.AutoMirrored.Outlined.Send,
                 onClick = ::submit,
                 enabled = canSubmit,
+            )
+
+            // 显式收起入口：不依赖「焦点离开」自动收起。
+            // 自动收起会在输入框刚获得焦点、或用户短暂按方向键时误触发，
+            // 表现为「弹出来立刻缩回去」，根本无法输入。
+            DialogActionButton(
+                text = "收起",
+                icon = Icons.Outlined.ExpandLess,
+                onClick = { onExpandedChange(false) },
+                enabled = !state.isPosting,
             )
         }
 

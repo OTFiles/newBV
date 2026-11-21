@@ -836,6 +836,62 @@ class CommentViewModelTest {
             assertThat(replyList?.replies?.map { it.rpid }).containsExactly(11L)
         }
 
+    @Test
+    fun `reply after post reloads first page instead of merging`() =
+        runTest(dispatcher) {
+            // 回复结束后必须整表重载第 1 页。
+            // 先前用「增量合并」保住滚动位置，但新回复按热度未必在第 1 页，
+            // 增量结果里没有它，用户看到的就是「回复没发出去」。
+            val root = comment(rpid = 1L, replyCount = 1)
+            coEvery { repository.getComments(any(), any(), any(), any(), any()) } returns
+                page(listOf(root), page = 1, total = 1, hasMore = false)
+            coEvery { repository.getReplies(any(), any(), any(), any(), any()) } returns
+                page(listOf(comment(rpid = 11L, rootRpid = 1L)), page = 1, total = 1, hasMore = false)
+            coEvery { repository.postComment(any(), any(), any(), any()) } returns
+                CommentAddResult(code = 0, message = "0", rpid = 99L)
+
+            viewModel.load(100L)
+            advanceUntilIdle()
+            viewModel.toggleReplies(1L)
+            advanceUntilIdle()
+
+            // 刷新后服务端只返回新回复，旧的 11 不在第 1 页了
+            coEvery { repository.getReplies(any(), any(), any(), any(), any()) } returns
+                page(listOf(comment(rpid = 99L, rootRpid = 1L)), page = 1, total = 1, hasMore = false)
+
+            viewModel.replyTo(root)
+            viewModel.postComment("回复内容")
+            advanceUntilIdle()
+
+            val replies = viewModel.uiState.value.commentList.replyList(1L)?.replies.orEmpty()
+            // 整表替换：不能把旧第 1 页与新内容拼在一起
+            assertThat(replies.map { it.rpid }).containsExactly(99L)
+        }
+
+    @Test
+    fun `reply keeps reply list expanded after post`() =
+        runTest(dispatcher) {
+            val root = comment(rpid = 1L, replyCount = 1)
+            coEvery { repository.getComments(any(), any(), any(), any(), any()) } returns
+                page(listOf(root), page = 1, total = 1, hasMore = false)
+            coEvery { repository.getReplies(any(), any(), any(), any(), any()) } returns
+                page(listOf(comment(rpid = 11L, rootRpid = 1L)), page = 1, total = 1, hasMore = false)
+            coEvery { repository.postComment(any(), any(), any(), any()) } returns
+                CommentAddResult(code = 0, message = "0", rpid = 99L)
+
+            viewModel.load(100L)
+            advanceUntilIdle()
+            viewModel.toggleReplies(1L)
+            advanceUntilIdle()
+
+            viewModel.replyTo(root)
+            viewModel.postComment("内容")
+            advanceUntilIdle()
+
+            // 刷新后楼中楼必须保持展开，否则用户以为回复丢了
+            assertThat(viewModel.uiState.value.commentList.replyList(1L)?.expanded).isTrue()
+        }
+
     private fun page(
         comments: List<Comment>,
         page: Int,

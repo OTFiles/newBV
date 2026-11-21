@@ -594,23 +594,18 @@ class CommentViewModel
                 startCommentsLoad(sort = sort, aid = aid)
                 return
             }
-            val commentList = state.commentLists[sort] ?: return
-            val replyList = commentList.replyList(target.rootRpid)
+            if (state.commentLists[sort] == null) return
 
-            // 回复成功后如何刷新，取决于该楼中楼此前的状态：
+            // 回复成功后**整表重载第 1 页**。
             //
-            // - 从未加载过：正常拉第一页（会置 expanded = true）。
-            // - 已经加载过：**只做增量补齐**，绝不重新请求当前页。
-            //   原实现用 startRepliesLoad(page = replyList.page) 重载当前页，
-            //   而该方法的 isFirst 分支会执行 replies = appended（整表替换），
-            //   于是用户往下翻过的回复全被丢掉、列表看起来「被收起」；
-            //   若当前页 > 1 则走追加分支，把同一页数据又追加一遍，出现重复。
-            if (replyList == null || !replyList.loaded) {
-                startRepliesLoad(sort = sort, aid = aid, rootRpid = target.rootRpid, page = 1)
-            } else {
-                // 保持 expanded 不变，只标记为需要静默刷新第一页
-                startRepliesSilentRefresh(sort = sort, aid = aid, rootRpid = target.rootRpid)
-            }
+            // 历史教训：先前用「增量合并」以保住滚动位置，但 B 站楼中楼按热度排序，
+            // 新回复未必落在第 1 页，增量结果里根本没有它，
+            // 用户看到的就是「回复没发出去」。
+            //
+            // 这里先把该楼中楼标记为未加载，让 startRepliesLoad 的 isFirst 分支
+            // 走「整表替换」而不是「追加」，否则新旧数据会拼在一起出现重复。
+            updateReplyList(target.rootRpid, sort) { it.copy(loaded = false) }
+            startRepliesLoad(sort = sort, aid = aid, rootRpid = target.rootRpid, page = 1)
             // 主评论上的回复数需要更新，否则界面仍显示旧数字
             updateCommentList(sort) { list ->
                 list.copy(
@@ -747,77 +742,6 @@ class CommentViewModel
             page = 1,
             preferApiType = ApiType.Web,
         )
-
-        /**
-         * 静默刷新楼中楼第一页。
-         *
-         * 用于「刚回复成功」的场景：新回复通常出现在第一页，但也可能因为排序
-         * 落在任何位置，因此只需把第一页拉回来做**合并**，而不是替换：
-         * - 已加载的后续页保持不动
-         * - `expanded` / `page` / `hasMore` 一律保持不变
-         * - 只在末尾追加真正没见过的新条目
-         *
-         * 这样用户正在看的回复不会消失，楼中楼也不会「被收起」。
-         */
-        private fun startRepliesSilentRefresh(
-            sort: CommentSort,
-            aid: Long,
-            rootRpid: Long,
-        ) {
-            if (aid <= 0L || rootRpid <= 0L) return
-            val key = replyKey(sort, rootRpid)
-            val generation = (replyGenerations[key] ?: 0L) + 1
-            replyGenerations[key] = generation
-            replyJobs.remove(key)?.cancel()
-            replyJobs[key] =
-                viewModelScope.launch {
-                    try {
-                        val result =
-                            withTimeout(COMMENT_LOAD_TIMEOUT_MS) {
-                                commentRepository.getReplies(
-                                    aid = aid,
-                                    rootRpid = rootRpid,
-                                    page = 1,
-                                    preferApiType = ApiType.Web,
-                                )
-                            }
-                        if (!isReplyListCurrent(key, sort, aid, generation)) return@launch
-                        val current =
-                            _uiState.value.commentLists[sort]?.replyList(rootRpid)
-                                ?: return@launch
-                        val existing = current.replies.mapTo(HashSet()) { it.rpid }
-                        val fresh =
-                            result.comments.filter {
-                                it.rpid != rootRpid && it.rpid !in existing
-                            }
-                        updateReplyList(rootRpid, sort) {
-                            it.copy(
-                                // 新回复插到**开头**而不是末尾：
-                                // B 站楼中楼通常把最新的排在最前，插到末尾用户根本看不到
-                                // （需要一路滚到底），主观感受就是「回复没发出去」。
-                                replies = fresh + it.replies,
-                                // 即使 fresh 为空也要把 total 同步过来，
-                                // 否则回复数会一直停在旧值
-                                total = maxOf(it.total, result.total),
-                                // 服务器可能在此之前并未标记为已展开，这里补上，
-                                // 保证回复区一定可见
-                                expanded = true,
-                                loaded = true,
-                                initialLoading = false,
-                                initialError = false,
-                            )
-                        }
-                    } catch (error: Throwable) {
-                        // 静默刷新失败不影响用户的阅读，仅记录日志
-                        rethrowCancellation(error)
-                        logger.error(error) {
-                            "Failed to refresh replies after post: aid=$aid, rootRpid=$rootRpid"
-                        }
-                    } finally {
-                        if (replyGenerations[key] == generation) replyJobs.remove(key)
-                    }
-                }
-        }
 
         private fun startRepliesLoad(
             sort: CommentSort,
