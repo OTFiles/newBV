@@ -192,8 +192,11 @@ class CommentViewModelTest {
         }
 
     @Test
-    fun `load more empty page stops pagination`() =
+    fun `load more keeps paginating through empty pages until streak limit`() =
         runTest(dispatcher) {
+            // 单页全是重复项不再立即停止：
+            // 热门排序下服务端跨页重叠很多，一停就会「加载到一半不动了」。
+            // 只有连续多页都零新增才判定到底。
             coEvery { repository.getComments(100L, 1, 1, null, any()) } returns
                 page(listOf(comment(1L)), page = 1, total = 10, hasMore = true)
             coEvery { repository.getComments(100L, 1, 2, null, any()) } returns
@@ -204,8 +207,30 @@ class CommentViewModelTest {
             viewModel.loadMoreComments()
             advanceUntilIdle()
 
-            assertThat(viewModel.uiState.value.hasMore).isFalse()
+            // 第一次空页：仍可继续
+            assertThat(viewModel.uiState.value.hasMore).isTrue()
             assertThat(viewModel.uiState.value.comments).hasSize(1)
+            assertThat(viewModel.uiState.value.commentList.emptyPageStreak).isEqualTo(1)
+        }
+
+    @Test
+    fun `pagination stops after five consecutive empty pages`() =
+        runTest(dispatcher) {
+            coEvery { repository.getComments(100L, 1, 1, null, any()) } returns
+                page(listOf(comment(1L)), page = 1, total = 99, hasMore = true)
+            // 后续每页都是空的
+            coEvery { repository.getComments(100L, 1, 2, null, any()) } returns
+                page(emptyList(), page = 2, total = 99, hasMore = true)
+
+            viewModel.load(100L)
+            advanceUntilIdle()
+            repeat(6) {
+                viewModel.loadMoreComments()
+                advanceUntilIdle()
+            }
+
+            // 连续零新增达到上限后必须停下，避免无限翻页
+            assertThat(viewModel.uiState.value.hasMore).isFalse()
         }
 
     @Test
