@@ -218,8 +218,8 @@ class CommentViewModelTest {
         runTest(dispatcher) {
             coEvery { repository.getComments(100L, 1, 1, null, any()) } returns
                 page(listOf(comment(1L)), page = 1, total = 99, hasMore = true)
-            // 后续每页都是空的
-            coEvery { repository.getComments(100L, 1, 2, null, any()) } returns
+            // 后续每一页都是空的（页码会持续递增，用 any() 兜住所有页）
+            coEvery { repository.getComments(100L, 1, any(), null, any()) } returns
                 page(emptyList(), page = 2, total = 99, hasMore = true)
 
             viewModel.load(100L)
