@@ -1384,15 +1384,12 @@ private fun CommentComposer(
         // 若当前 draft 比冻结值短、且正好是冻结值的开头，
         // 说明是失焦时输入法回退造成的截断，应当用冻结值。
         // 用户主动删字时焦点仍在输入框内，冻结值会同步变短，不会误判。
-        val text =
-            if (draft.length < frozenDraft.length && frozenDraft.startsWith(draft)) {
-                commentInputLog.warn {
-                    "submit truncated by IME on unfocus: ${draft.length} -> restore ${frozenDraft.length}"
-                }
-                frozenDraft
-            } else {
-                draft
+        val text = resolveSubmitText(current = draft, frozen = frozenDraft)
+        if (text != draft) {
+            commentInputLog.warn {
+                "submit truncated by IME on unfocus: ${draft.length} -> restore ${frozenDraft.length}"
             }
+        }
         if (text.isBlank() || state.isPosting) return
         commentInputLog.info { "submit: len=${text.length}, text=$text" }
         onSubmit(text)
@@ -1627,6 +1624,25 @@ private const val COMMENT_INPUT_MAX_LENGTH = 1000
 
 /** 输入框诊断日志（TAG: CommentInput）。 */
 private val commentInputLog = Loggers.get("CommentInput")
+
+/**
+ * 输入法因失焦回退文本时，判断应当提交哪一份内容。
+ *
+ * 背景：点「发送」按钮会让焦点离开输入框，输入法趁机丢弃尚未上屏的组合文本，
+ * 把输入框内容回退成「已上屏部分」。此时 [current] 会比用户真正输入的内容短。
+ *
+ * 判据：`current` 是 `frozen` 的前缀且更短 → 判定为回退，返回 [frozen]；
+ * 否则返回 [current]（用户确实删改了内容）。
+ *
+ * @param current 输入框当前内容（可能已被回退）
+ * @param frozen 焦点期间记录的完整内容
+ * @return 实际应当提交的文本
+ */
+internal fun resolveSubmitText(
+    current: String,
+    frozen: String,
+): String =
+    if (current.length < frozen.length && frozen.startsWith(current)) frozen else current
 
 /**
  * 图片查看覆盖层。
