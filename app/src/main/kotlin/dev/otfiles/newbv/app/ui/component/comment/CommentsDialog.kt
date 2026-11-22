@@ -1520,6 +1520,19 @@ private fun CommentComposer(
                 }
             }
 
+            // 临时诊断：把「输入框实际持有的内容」直接画在屏幕上。
+            // 电视上取日志不方便（部分 ROM 连本进程 logcat 都读不到），
+            // 直接显示比事后导日志更快定位。
+            // 注意：release 版本也显示，否则用户装的正式包看不到诊断信息
+            if (isFocused) {
+                Text(
+                    text = "DEBUG 当前内容(${draft.length}字): $draft",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
             DialogActionButton(
                 text = if (state.isPosting) "发送中" else "发送",
                 icon = Icons.AutoMirrored.Outlined.Send,

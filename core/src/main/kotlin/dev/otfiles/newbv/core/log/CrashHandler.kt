@@ -93,7 +93,12 @@ class CrashHandler(
 
             with(logFile.writer()) {
                 writeDeviceInfo(this)
-                appendLine("======== Logs ========")
+                // 先写自建缓冲：不依赖系统 logcat 权限，一定拿得到内容
+                val buffered = LogBuffer.dump()
+                appendLine("======== App Logs (in-process buffer) ========")
+                appendLine(buffered.ifEmpty { "(empty)" })
+                appendLine()
+                appendLine("======== Logcat ========")
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
                     appendLine(line)
@@ -140,8 +145,16 @@ class CrashHandler(
 
             val deviceInfo = collectDeviceInfo()
 
-            // 先写入设备信息和异常，再追加 Logcat，确保应用 Logger 输出也被保留。
+            // 先写入设备信息和异常，再追加自建缓冲与 Logcat，
+            // 确保即使系统 logcat 读不到，应用自身日志也被保留。
             writeCrashContext(crashFile, deviceInfo, thread, exception)
+            runCatching {
+                OutputStreamWriter(FileOutputStream(crashFile, true)).use { writer ->
+                    writer.appendLine("======== App Logs (in-process buffer) ========")
+                    writer.appendLine(LogBuffer.dump().ifEmpty { "(empty)" })
+                    writer.flush()
+                }
+            }
 
             // 收集 logcat 文本（用于文本日志和 JSON 上传）
             val logcatText = collectLogcatText()

@@ -81,9 +81,54 @@ private class AndroidLogger(
         runCatching {
             val text = message()
             val detail = throwable?.let { "\n${Log.getStackTraceString(it)}" }.orEmpty()
-            Log.println(priority, tag, text + detail)
+            val line = text + detail
+            // 先落内存缓冲，再写 logcat。
+            // 从 Android 4.1 起普通 app 只能读到属于自己的 logcat，
+            // 而部分电视/ROM 上连这一点都被 SELinux 挡掉，
+            // 导致导出日志时 `logcat -t` 返回空、文件里只有设备信息。
+            // 自建缓冲不依赖系统权限，导出时一定拿得到内容。
+            LogBuffer.record(priority, tag, line)
+            Log.println(priority, tag, line)
         }
     }
+}
+
+/**
+ * 进程内日志环形缓冲。
+ *
+ * 只保留最近 [CAPACITY] 条，避免长期运行占用过多内存。
+ * 导出日志（含崩溃日志）时整体写出，作为 `logcat` 命令不可用时的兜底。
+ */
+object LogBuffer {
+    private const val CAPACITY = 4000
+
+    private val entries = ArrayDeque<String>(CAPACITY)
+
+    /** 记录一条日志。线程安全由 synchronized 保证，写入频率很低不影响性能。 */
+    fun record(
+        priority: Int,
+        tag: String,
+        message: String,
+    ) {
+        val level =
+            when (priority) {
+                Log.DEBUG -> "D"
+                Log.INFO -> "I"
+                Log.WARN -> "W"
+                Log.ERROR -> "E"
+                else -> "V"
+            }
+        synchronized(entries) {
+            if (entries.size >= CAPACITY) entries.removeFirst()
+            entries.addLast("$level/$tag: $message")
+        }
+    }
+
+    /** 取出全部缓冲内容（按记录顺序）。 */
+    fun dump(): String =
+        synchronized(entries) {
+            entries.joinToString("\n")
+        }
 }
 
 /**
