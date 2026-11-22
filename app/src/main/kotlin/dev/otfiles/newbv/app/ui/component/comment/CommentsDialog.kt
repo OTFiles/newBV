@@ -1336,6 +1336,15 @@ private fun CommentComposer(
     val focusRequester = remember { FocusRequester() }
     val target = state.replyTarget
 
+    // 焦点在输入框期间，持续记录「最后一次看到的完整内容」。
+    //
+    // 背景：点「发送」按钮会让焦点从输入框移到按钮上。输入法在失去焦点的瞬间
+    // 会把尚未上屏的组合文本丢弃，并把输入框内容回退成「已上屏部分」，
+    // 于是按钮的 onClick 读到的 draft 比用户实际敲的短。
+    // 用户看到的现象就是「输入一整句，只发出去前半句」。
+    // 把焦点期间的内容冻结下来，提交时优先用它，就不会被这次回退吃掉。
+    var frozenDraft by remember { mutableStateOf("") }
+
     // 展开后立刻聚焦输入框：等一帧让节点完成布局，
     // requestFocus 在未布局时是静默失败的。
     LaunchedEffect(expanded) {
@@ -1357,20 +1366,36 @@ private fun CommentComposer(
     // 发表成功后重新聚焦，支持连续发言
     LaunchedEffect(draftResetToken) {
         if (draftResetToken > 0) {
+            // 草稿已清空，冻结值必须一起清掉，
+            // 否则下一次提交会把上一条的残留内容捞回来
+            frozenDraft = ""
             onExpandedChange(true)
             kotlinx.coroutines.delay(16)
             runCatching { focusRequester.requestFocus() }
         }
     }
 
-    val canSubmit = draft.isNotBlank() && !state.isPosting
+    // 按钮可点性也要看冻结值：失焦瞬间 draft 可能已被回退成空，
+    // 若只看 draft，按钮会在点击生效前变成禁用态
+    val canSubmit = (draft.isNotBlank() || frozenDraft.isNotBlank()) && !state.isPosting
 
     fun submit() {
-        if (!canSubmit) return
-        // 提交前把真正要发出去的文本记下来，
-        // 和上面 input 日志对照就能确定是「输入阶段丢字」还是「提交阶段丢字」
-        commentInputLog.info { "submit: len=${draft.length}, text=$draft" }
-        onSubmit(draft)
+        // 选中的提交内容：
+        // 若当前 draft 比冻结值短、且正好是冻结值的开头，
+        // 说明是失焦时输入法回退造成的截断，应当用冻结值。
+        // 用户主动删字时焦点仍在输入框内，冻结值会同步变短，不会误判。
+        val text =
+            if (draft.length < frozenDraft.length && frozenDraft.startsWith(draft)) {
+                commentInputLog.warn {
+                    "submit truncated by IME on unfocus: ${draft.length} -> restore ${frozenDraft.length}"
+                }
+                frozenDraft
+            } else {
+                draft
+            }
+        if (text.isBlank() || state.isPosting) return
+        commentInputLog.info { "submit: len=${text.length}, text=$text" }
+        onSubmit(text)
     }
 
     if (!expanded) return
@@ -1485,6 +1510,18 @@ private fun CommentComposer(
                                     "sel=${newValue.selection.start}-${newValue.selection.end}, " +
                                     "text=${newValue.text}"
                             }
+                            // 维护「提交时该用的文本」。
+                            //
+                            // 判据：如果新文本是冻结值的前缀、且更短，说明是
+                            // 输入法因失焦把内容回退掉了（组合文本被丢弃），此时保留冻结值。
+                            // 其余情况（正常增删、改内容）都同步成新文本。
+                            //
+                            // 不能简单地「只增不减」：用户删字后重新输入不同内容时，
+                            // 冻结值会永远停在旧的长文本上。
+                            val text = newValue.text
+                            if (!(text.length < frozenDraft.length && frozenDraft.startsWith(text))) {
+                                frozenDraft = text
+                            }
                             onDraftChange(
                                 if (newValue.text.length <= COMMENT_INPUT_MAX_LENGTH) {
                                     newValue
@@ -1525,8 +1562,18 @@ private fun CommentComposer(
             // 直接显示比事后导日志更快定位。
             // 注意：release 版本也显示，否则用户装的正式包看不到诊断信息
             if (isFocused) {
+                // 把 composition（输入法尚未上屏的组合文本）单独标出来：
+                // 若它非空，说明有一部分文字还压在输入法里、没进 draft，
+                // 这正是「显示完整但发出去少一段」的一种可能成因。
+                val comp = textFieldValue.composition
+                val compText =
+                    if (comp != null && comp.min >= 0 && comp.max <= draft.length) {
+                        " 组合中=[${draft.substring(comp.min, comp.max)}]"
+                    } else {
+                        ""
+                    }
                 Text(
-                    text = "DEBUG 当前内容(${draft.length}字): $draft",
+                    text = "DEBUG 当前内容(${draft.length}字)$compText: $draft",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.fillMaxWidth(),

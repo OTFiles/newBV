@@ -576,6 +576,9 @@ class CommentViewModel
                 return
             }
             val target = state.replyTarget
+            // 诊断：把真正要提交的内容完整记下来。
+            // 提交到 API 的内容与界面显示的内容若有差异，这条日志会直接暴露。
+            logger.info { "postComment: len=${content.length}, reply=${target != null}, text=[$content]" }
             _uiState.update { it.copy(isPosting = true) }
             viewModelScope.launch {
                 try {
@@ -595,7 +598,7 @@ class CommentViewModel
                         _uiEffect.emit(CommentUiEffect.ShowToast(result.userMessage))
                         return@launch
                     }
-                    logger.info { "Posted comment: aid=$aid, rpid=${result.rpid}, reply=${target != null}" }
+                    logger.info { "Posted comment: aid=$aid, rpid=${result.rpid}, reply=${target != null}, sentLen=${content.length}" }
                     _uiState.update { it.copy(replyTarget = null) }
                     _uiEffect.emit(CommentUiEffect.Posted)
                     // 重新拉取当前排序首屏，把新评论/新回复带回列表
