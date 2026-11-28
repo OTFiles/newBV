@@ -394,6 +394,9 @@ fun CommentsDialog(
     // 每次组合都会重建文本、丢掉状态，表现为「最后一段字消失」。
     var draftValue by remember(aid) { mutableStateOf(TextFieldValue("")) }
     var draftResetToken by remember(aid) { mutableIntStateOf(0) }
+    // 单独的清空信号：与「重新抢焦点」解耦。
+    // 回复楼中楼后只需要清空内部状态，不应把焦点拽回输入框。
+    var draftClearToken by remember(aid) { mutableIntStateOf(0) }
 
     LaunchedEffect(aid) {
         viewModel.load(aid)
@@ -403,10 +406,18 @@ fun CommentsDialog(
         viewModel.uiEffect.collect { effect ->
             when (effect) {
                 is CommentUiEffect.ShowToast -> ToastUtils.show(context, effect.message)
-                CommentUiEffect.Posted -> {
-                    // 清空草稿：递增 token 让输入框内部重建，避免在外部重置时丢失焦点
+                is CommentUiEffect.Posted -> {
+                    // 清空草稿。
+                    //
+                    // draftResetToken 有两个作用：清空输入框 + 重新抢焦点。
+                    // 回复楼中楼时只想要前者——token 变化会把用户从列表拽回输入框，
+                    // 正好盖住刚刷新出来的那一楼，焦点位置也丢了。
+                    // 因此回复场景只清内容，不递增 token。
                     draftValue = TextFieldValue("")
-                    draftResetToken++
+                    draftClearToken++
+                    if (!effect.isReply) {
+                        draftResetToken++
+                    }
                     ToastUtils.show(context, "发表成功")
                 }
             }
@@ -474,6 +485,7 @@ fun CommentsDialog(
                     textFieldValue = draftValue,
                     onDraftChange = { draftValue = it },
                     draftResetToken = draftResetToken,
+                    draftClearToken = draftClearToken,
                     onImageClick = { pictures, index ->
                         imageViewerPictures = pictures
                         imageViewerIndex = index
@@ -512,6 +524,7 @@ private fun CommentsContent(
     textFieldValue: TextFieldValue,
     onDraftChange: (TextFieldValue) -> Unit,
     draftResetToken: Int,
+    draftClearToken: Int,
     onImageClick: (List<String>, Int) -> Unit,
     onUserClick: (mid: Long, name: String) -> Unit = { _, _ -> },
 ) {
@@ -621,6 +634,7 @@ private fun CommentsContent(
             textFieldValue = textFieldValue,
             onDraftChange = onDraftChange,
             draftResetToken = draftResetToken,
+            draftClearToken = draftClearToken,
             onSubmit = onPostComment,
             onCancelReply = onCancelReply,
             onExpandedChange = { composerExpanded = it },
@@ -1328,6 +1342,7 @@ private fun CommentComposer(
     textFieldValue: TextFieldValue,
     onDraftChange: (TextFieldValue) -> Unit,
     draftResetToken: Int,
+    draftClearToken: Int,
     onSubmit: (String) -> Unit,
     onCancelReply: () -> Unit,
     onExpandedChange: (Boolean) -> Unit,
@@ -1363,12 +1378,17 @@ private fun CommentComposer(
         }
     }
 
-    // 发表成功后重新聚焦，支持连续发言
+    // 草稿清空信号：只重置内部状态，不动焦点。
+    LaunchedEffect(draftClearToken) {
+        if (draftClearToken > 0) {
+            // 冻结值必须一起清掉，否则下一次提交会把上一条的残留内容捞回来
+            frozenDraft = ""
+        }
+    }
+
+    // 发表成功后重新聚焦，支持连续发言（仅一级评论会递增该 token）
     LaunchedEffect(draftResetToken) {
         if (draftResetToken > 0) {
-            // 草稿已清空，冻结值必须一起清掉，
-            // 否则下一次提交会把上一条的残留内容捞回来
-            frozenDraft = ""
             onExpandedChange(true)
             kotlinx.coroutines.delay(16)
             runCatching { focusRequester.requestFocus() }
@@ -1815,6 +1835,7 @@ private fun CommentsContentPreview() {
             textFieldValue = TextFieldValue(""),
             onDraftChange = {},
             draftResetToken = 0,
+            draftClearToken = 0,
             onImageClick = { _, _ -> },
         )
     }

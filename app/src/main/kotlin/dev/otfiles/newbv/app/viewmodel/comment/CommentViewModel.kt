@@ -240,8 +240,17 @@ sealed interface CommentUiEffect {
         val message: String,
     ) : CommentUiEffect
 
-    /** 评论发表成功，UI 可据此收起输入框与清空草稿。 */
-    data object Posted : CommentUiEffect
+    /**
+     * 评论发表成功，UI 可据此清空草稿。
+     *
+     * @property isReply 是否为回复楼中楼。
+     *   一级评论发表后保持输入框焦点（方便连续发言）；
+     *   回复楼中楼后应把焦点交还列表，否则用户会突然被拽回输入框，
+     *   刚展开的那一楼也看不清。
+     */
+    data class Posted(
+        val isReply: Boolean,
+    ) : CommentUiEffect
 }
 
 /** [ReplyListState] 是否具备加载下一页的条件。 */
@@ -600,7 +609,7 @@ class CommentViewModel
                     }
                     logger.info { "Posted comment: aid=$aid, rpid=${result.rpid}, reply=${target != null}, sentLen=${content.length}" }
                     _uiState.update { it.copy(replyTarget = null) }
-                    _uiEffect.emit(CommentUiEffect.Posted)
+                    _uiEffect.emit(CommentUiEffect.Posted(isReply = target != null))
                     // 重新拉取当前排序首屏，把新评论/新回复带回列表
                     refreshAfterPost(target)
                 } catch (error: Throwable) {
@@ -649,6 +658,7 @@ class CommentViewModel
             updateReplyList(target.rootRpid, sort) {
                 ReplyListState(rootRpid = target.rootRpid, expanded = true, initialLoading = true)
             }
+            logger.info { "refreshAfterPost replies: root=${target.rootRpid}, sort=${sort.name}" }
             startRepliesLoad(sort = sort, aid = aid, rootRpid = target.rootRpid, page = 1)
             // 主评论上的回复数需要更新，否则界面仍显示旧数字
             updateCommentList(sort) { list ->
@@ -844,6 +854,11 @@ class CommentViewModel
                                 loadingMore = false,
                                 loadMoreError = false,
                             )
+                        }
+                        logger.info {
+                            "replies loaded: root=$rootRpid page=${result.page} " +
+                                "got=${result.comments.size} appended=${appended.size} " +
+                                "total=${result.total} hasMore=${result.hasMore} first=$isFirst"
                         }
                     } catch (error: Throwable) {
                         rethrowCancellation(error)
